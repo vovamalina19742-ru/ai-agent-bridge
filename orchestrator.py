@@ -247,7 +247,9 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
             "stream": False,
             "options": {"num_ctx": 8192}
         }
-        if ollama_tools:
+        # Если в последнем сообщении передан контент веб-страницы для анализа, не перегружаем модель 17 схемами инструментов
+        is_direct_analysis = any("<web_content" in str(m.get("content", "")) for m in active_messages[-2:])
+        if ollama_tools and not is_direct_analysis:
             payload["tools"] = ollama_tools
 
 
