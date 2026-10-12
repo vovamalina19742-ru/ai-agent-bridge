@@ -224,12 +224,16 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
             target_url = urls[0].rstrip('.,;)')
             already_fetched = any(target_url in str(m.get("content", "")) for m in messages[:-1])
             if not already_fetched:
-                print(f"[*] В запросе обнаружен URL: {target_url}. Автоматически загружаю страницу...")
                 page_data = execute_tool(tools_map["web_fetcher"], {"url": target_url, "mode": "text"})
                 last_output_for_injection_check = page_data
                 messages.append({
                     "role": "user",
-                    "content": f"<web_content url=\"{target_url}\">\n{page_data}\n</web_content>\n\nПроанализируй приведенный выше текст страницы и ответь на исходный запрос."
+                    "content": (
+                        f"<web_content url=\"{target_url}\">\n{page_data}\n</web_content>\n\n"
+                        "ВЫПОЛНИ АНАЛИЗ СТАТЬИ ПРЯМО СЕЙЧАС:\n"
+                        "Используй ТОЛЬКО предоставленный выше текст страницы из <web_content>. "
+                        "Не вызывай ask_books или другие инструменты поиска — сразу дай структурированный анализ статьи на русском языке!"
+                    )
                 })
 
     headers = {"Content-Type": "application/json"}

@@ -116,7 +116,7 @@ def query_ollama(prompt, model=DEFAULT_MODEL):
             data=data_bytes,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=40.0) as resp:
+        with urllib.request.urlopen(req, timeout=120.0) as resp:
             res_json = json.loads(resp.read().decode("utf-8"))
             return res_json.get("response", "").strip()
     except Exception as e:
