@@ -4,6 +4,14 @@
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-green.svg)](https://modelcontextprotocol.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[![Status: Work in Progress](https://img.shields.io/badge/status-work--in--progress-orange.svg)]()
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](https://github.com/vovamalina19742-ru/ai-agent-bridge/issues)
+
+> [!NOTE]
+> **🚧 Проект в активной разработке (Work in Progress / Alpha)!**
+> Это открытый эксперимент по связке облачных планировщиков (Antigravity / Claude / Gemini) с локальным парком моделей (Ollama) и домашним сервером. Некоторые части архитектуры ещё «сырые», активно тестируются и дорабатываются.
+> **Приглашаем к доработке и тестированию!** Будем очень рады вашим Issue, предложениям по архитектуре и Pull Request'ам.
+
 A high-performance, autonomous, and secure local AI agent ecosystem. It bridges cloud-based planners (like Claude/Gemini via MCP) with local open-source models (Ollama: Qwen 2.5, DeepSeek R1), executing heavy tasks locally **for 0 API token costs** while keeping your data strictly private.
 
 ---
