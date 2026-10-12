@@ -1,0 +1,29 @@
+# Environment variables & Secrets
+.env
+*.env
+*.key
+.ssh/
+
+# Databases & Storage
+*.db
+*.db-wal
+*.db-shm
+*.json
+!package.json
+!requirements.txt
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# OS Specific & IDE
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
