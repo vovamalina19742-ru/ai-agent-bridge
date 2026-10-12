@@ -154,11 +154,12 @@ def ask_library(question, book_filter=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Спроси библиотеку: RAG-ответ по книгам")
-    parser.add_argument("question", help="Вопрос")
+    parser.add_argument("question", nargs="+", help="Вопрос")
     parser.add_argument("--book", "-b", default=None, help="Фильтр по имени книги")
     args = parser.parse_args()
 
-    res = ask_library(args.question, book_filter=args.book)
+    full_question = " ".join(args.question) if isinstance(args.question, list) else str(args.question)
+    res = ask_library(full_question, book_filter=args.book)
     print(res)
 
 
