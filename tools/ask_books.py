@@ -28,6 +28,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 try:
+    from services import db_pool
+except Exception:
+    db_pool = None
+
+try:
     from config import DATABASE_PATH, OLLAMA_BASE_URL, DEFAULT_MODEL
 except Exception:
     DATABASE_PATH = os.path.join(BASE_DIR, "books_index.db")
@@ -59,7 +64,10 @@ def search_fts_snippets(query, book_filter=None, limit=5):
         return []
 
     try:
-        con = sqlite3.connect(DATABASE_PATH)
+        if db_pool:
+            con = db_pool.get_connection(DATABASE_PATH)
+        else:
+            con = sqlite3.connect(DATABASE_PATH, timeout=10.0)
         cur = con.cursor()
 
         raw_words = re.findall(r"[\w\d]+", query.lower(), re.UNICODE)
@@ -70,7 +78,8 @@ def search_fts_snippets(query, book_filter=None, limit=5):
             meaningful = raw_words[:3]
 
         if not meaningful:
-            con.close()
+            if not db_pool:
+                con.close()
             return []
 
         terms = [f'"{w}"*' for w in meaningful]
@@ -91,7 +100,8 @@ def search_fts_snippets(query, book_filter=None, limit=5):
         params.append(limit)
 
         rows = cur.execute(sql, params).fetchall()
-        con.close()
+        if not db_pool:
+            con.close()
         return rows
     except Exception as e:
         sys.stderr.write(f"[!] FTS5 ошибка: {e}\n")
@@ -154,11 +164,19 @@ def ask_library(question, book_filter=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Спроси библиотеку: RAG-ответ по книгам")
-    parser.add_argument("question", nargs="+", help="Вопрос")
+    parser.add_argument("pos_question", nargs="*", default=[], help="Позиционный вопрос")
+    parser.add_argument("--question", "-q", default=None, help="Вопрос через флаг")
     parser.add_argument("--book", "-b", default=None, help="Фильтр по имени книги")
     args = parser.parse_args()
 
-    full_question = " ".join(args.question) if isinstance(args.question, list) else str(args.question)
+    if args.question:
+        full_question = args.question
+    elif args.pos_question:
+        full_question = " ".join(args.pos_question)
+    else:
+        print("[-] Укажите вопрос для поиска в библиотеке.")
+        return
+
     res = ask_library(full_question, book_filter=args.book)
     print(res)
 
