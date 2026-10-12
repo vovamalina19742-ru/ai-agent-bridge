@@ -7,7 +7,7 @@ import subprocess
 import importlib.util
 import requests
 import session_store
-from services import ToolExecutionResult, primary_provider, fallback_provider
+from services import ToolExecutionResult, primary_provider, fallback_provider, SEMANTIC_TOOL_ALIASES
 
 # Гарантируем корректный вывод UTF-8 в консоли Windows
 if sys.platform == "win32":
@@ -40,7 +40,7 @@ def get_stored_memories():
     return ""
 
 def load_agents_rules():
-    """Формирует сфокусированную инструкцию с жестким самосознанием и знанием стека D:\AI_Agent."""
+    r"""Формирует сфокусированную инструкцию с жестким самосознанием и знанием стека D:\AI_Agent."""
     memories = get_stored_memories()
     return (
         "Ты — AI-Agent Bridge Orchestrator, ведущий системный ИИ-инженер локальной среды D:\\AI_Agent.\n\n"
@@ -107,16 +107,27 @@ def load_tools_registry():
                 }
 
             func_name = spec_data.get("name", tool_name)
-            tools_map[func_name] = {
+            # Семантическое имя для 7B/8B моделей (Semantic Action Naming)
+            semantic_name = SEMANTIC_TOOL_ALIASES.get(tool_name, func_name)
+
+            tool_entry = {
                 "file_path": file_path,
                 "file_name": filename,
                 "spec": spec_data
             }
 
+            # Регистрируем оба имени (и семантическое, и оригинальное) в tools_map
+            tools_map[semantic_name] = tool_entry
+            if func_name != semantic_name:
+                tools_map[func_name] = tool_entry
+            if tool_name not in tools_map:
+                tools_map[tool_name] = tool_entry
+
+            # Модели Ollama отдаем семантическое, максимально понятное имя
             ollama_tools.append({
                 "type": "function",
                 "function": {
-                    "name": func_name,
+                    "name": semantic_name,
                     "description": spec_data.get("description", ""),
                     "parameters": spec_data.get("parameters", {"type": "object", "properties": {}})
                 }
@@ -257,11 +268,12 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
     if messages and messages[-1].get("role") == "user":
         user_text = messages[-1].get("content", "")
         urls = re.findall(r'https?://[^\s<>"]+', user_text)
-        if urls and "web_fetcher" in tools_map:
+        fetcher_tool = tools_map.get("web_fetcher") or tools_map.get("fetch_external_webpage_content")
+        if urls and fetcher_tool:
             target_url = urls[0].rstrip('.,;)')
             already_fetched = any(target_url in str(m.get("content", "")) for m in messages[:-1])
             if not already_fetched:
-                page_data = execute_tool(tools_map["web_fetcher"], {"url": target_url, "mode": "text"})
+                page_data = execute_tool(fetcher_tool, {"url": target_url, "mode": "text"})
                 last_output_for_injection_check = page_data
                 messages.append({
                     "role": "user",

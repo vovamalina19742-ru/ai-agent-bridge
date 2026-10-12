@@ -129,3 +129,34 @@ class ModelProvider:
 db_pool = DatabasePool()
 primary_provider = ModelProvider("http://localhost:11434", "qwen2.5-coder:7b")
 fallback_provider = ModelProvider("http://192.168.1.100:11434", "qwen2.5-coder:7b")
+
+# =====================================================================
+# 4. Semantic Tool Aliases (Семантические имена для 7B/8B моделей)
+# =====================================================================
+SEMANTIC_TOOL_ALIASES = {
+    # Книги и RAG
+    "ask_books": "search_technical_books_library_rag",
+    "search_books": "find_raw_books_fts_index",
+    
+    # Веб и Сеть
+    "web_fetcher": "fetch_external_webpage_content",
+    "network_scanner": "scan_local_network_hosts_and_ips",
+    "port_checker": "check_network_port_open",
+    
+    # Память и сохраненные ссылки
+    "memory_manager": "save_or_recall_permanent_memory",
+    "search_saved_links": "search_previously_studied_links_and_repos",
+    
+    # Документы, код и сканы
+    "doc_reader": "read_and_parse_local_document_file",
+    "code_check": "verify_and_lint_code_syntax",
+    "ocr_scans": "recognize_text_from_images_and_scans",
+    "cad_extractor": "extract_equipment_from_cad_and_blueprints",
+    
+    # Статус, бэкапы, ночные операции и сервер
+    "status_report": "check_system_and_services_health",
+    "backup_manager": "manage_hot_database_backups",
+    "night_ops": "run_nightly_maintenance_chain",
+    "remote_server": "execute_commands_on_linux_server",
+    "consult_senior_ai": "consult_with_senior_architect_ai",
+}
