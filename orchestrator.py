@@ -240,10 +240,12 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
         payload = {
             "model": MODEL_NAME,
             "messages": active_messages,
-            "stream": False
+            "stream": False,
+            "options": {"num_ctx": 8192}
         }
         if ollama_tools:
             payload["tools"] = ollama_tools
+
 
         try:
             resp = requests.post(OLLAMA_CHAT_URL, json=payload, headers=headers, timeout=300)
@@ -280,10 +282,12 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
                     continue
                 called_tools.add(call_sig)
 
-                print(f"[*] ИИ выбрал инструмент: {func_name} {func_args}")
                 output = execute_tool(tools_map[func_name], func_args)
+                if len(output) > 3500:
+                    output = output[:3500] + "\n[... вывод сокращен для защиты контекста ...]"
                 last_output_for_injection_check = output
                 print(f"[+] Вывод инструмента:\n{output}\n")
+
 
                 # Если это консультация со Старшим ИИ, его ответ уже закончен и полон
                 if func_name == "consult_senior_ai":

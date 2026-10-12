@@ -94,6 +94,13 @@ Add the server configuration to your MCP config (`mcp_config.json`):
 | `server_wake` | Send Wake-on-LAN (WOL) magic packet to remote host |
 | `server_sleep` | Send remote host to energy-efficient S3 Suspend (<1W) |
 | `server_exec` | Execute guarded bash commands on remote Linux node |
+| `status_report` | Unified one-call ecosystem health check (Ollama, DBs, SearXNG, node) |
+| `ask_books` | RAG over 424+ books using FTS5 + local Ollama with page citations |
+| `backup_manager` | Hot SQLite backup API with rotation & remote Linux node sync |
+| `doc_reader` | Universal document extractor for DOCX, XLSX, PPTX, CSV, TXT, HTML |
+| `code_check` | Syntax verification, ruff linting, pytest & cargo check |
+| `ocr_scans` | High-accuracy OCR for scanned PDFs, blueprints & images (RapidOCR) |
+| `night_ops` | Scheduled maintenance chain (health check -> backup -> code check -> report) |
 
 ---
 

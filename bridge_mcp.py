@@ -255,6 +255,70 @@ def tool_server_sleep(args):
     return _text_result(run_tool_script("remote_server.py", ["sleep"], timeout=30))
 
 
+def tool_status_report(args):
+    return _text_result(run_tool_script("status_report.py", [], timeout=15))
+
+
+def tool_ask_books(args):
+    question = (args.get("question") or "").strip()
+    if not question:
+        return _text_result("[!] Обязателен параметр question", is_error=True)
+    cli = [question]
+    if args.get("book_filter"):
+        cli.extend(["--book", args["book_filter"]])
+    return _text_result(run_tool_script("ask_books.py", cli, timeout=90))
+
+
+def tool_backup_manager(args):
+    cli = []
+    if args.get("upload_to_server") is False:
+        cli.append("--no-server")
+    if args.get("keep_last"):
+        cli.extend(["--keep", str(args["keep_last"])])
+    return _text_result(run_tool_script("backup_manager.py", cli, timeout=40))
+
+
+def tool_doc_reader(args):
+    file_path = (args.get("file_path") or "").strip()
+    if not file_path:
+        return _text_result("[!] Обязателен параметр file_path", is_error=True)
+    cli = [file_path]
+    if args.get("max_lines"):
+        cli.extend(["--lines", str(args["max_lines"])])
+    return _text_result(run_tool_script("doc_reader.py", cli, timeout=30))
+
+
+def tool_code_check(args):
+    target_path = (args.get("target_path") or "").strip()
+    if not target_path:
+        return _text_result("[!] Обязателен параметр target_path", is_error=True)
+    cli = [target_path]
+    if args.get("run_tests"):
+        cli.append("--test")
+    if args.get("fix_lint"):
+        cli.append("--fix")
+    return _text_result(run_tool_script("code_check.py", cli, timeout=45))
+
+
+def tool_ocr_scans(args):
+    file_path = (args.get("file_path") or "").strip()
+    if not file_path:
+        return _text_result("[!] Обязателен параметр file_path", is_error=True)
+    cli = [file_path]
+    if args.get("page_num"):
+        cli.extend(["--page", str(args["page_num"])])
+    if args.get("save_to_fts"):
+        cli.append("--save")
+    return _text_result(run_tool_script("ocr_scans.py", cli, timeout=60))
+
+
+def tool_night_ops(args):
+    cli = []
+    if args.get("skip_server"):
+        cli.append("--no-server")
+    return _text_result(run_tool_script("night_ops.py", cli, timeout=60))
+
+
 def _text_result(text, is_error=False):
     result = {"content": [{"type": "text", "text": text}]}
     if is_error:
@@ -374,6 +438,85 @@ TOOLS = {
             "Выполнить bash-команду на Linux-сервере через SSH. Деструктивные команды блокируются фильтром.",
             {"command": {"type": "string", "description": "Bash-команда"}},
             ["command"],
+        ),
+    ),
+    "status_report": (
+        tool_status_report,
+        tool_def(
+            "status_report",
+            "Единая экспресс-самодиагностика экосистемы: Ollama, очередь задач, размеры БД, сервер Linux и SearXNG.",
+            {},
+        ),
+    ),
+    "ask_books": (
+        tool_ask_books,
+        tool_def(
+            "ask_books",
+            "Спроси библиотеку: RAG-ответ по книгам с точными цитатами [Книга, стр. N] через локальную Ollama (0 токенов).",
+            {
+                "question": {"type": "string", "description": "Вопрос по технической теме"},
+                "book_filter": {"type": "string", "description": "Фильтр по названию книги (опционально)"},
+            },
+            ["question"],
+        ),
+    ),
+    "backup_manager": (
+        tool_backup_manager,
+        tool_def(
+            "backup_manager",
+            "Создать горячий SQLite-снапшот баз (очередь, книги) с ротацией и отправкой на Linux-сервер.",
+            {
+                "upload_to_server": {"type": "boolean", "description": "Синхронизировать на сервер (по умолчанию true)"},
+                "keep_last": {"type": "integer", "description": "Хранить последних копий локально (по умолчанию 5)"},
+            },
+        ),
+    ),
+    "doc_reader": (
+        tool_doc_reader,
+        tool_def(
+            "doc_reader",
+            "Универсальное извлечение чистого текста из DOCX, XLSX, PPTX, CSV, TXT, MD, HTML.",
+            {
+                "file_path": {"type": "string", "description": "Путь к файлу"},
+                "max_lines": {"type": "integer", "description": "Максимум строк (по умолчанию 150)"},
+            },
+            ["file_path"],
+        ),
+    ),
+    "code_check": (
+        tool_code_check,
+        tool_def(
+            "code_check",
+            "Автопроверка синтаксиса, линтера (ruff) и тестов (pytest/cargo) для валидации правок кода.",
+            {
+                "target_path": {"type": "string", "description": "Путь к файлу или папке"},
+                "run_tests": {"type": "boolean", "description": "Запустить pytest/cargo test (по умолчанию false)"},
+                "fix_lint": {"type": "boolean", "description": "Автофикс через ruff (по умолчанию false)"},
+            },
+            ["target_path"],
+        ),
+    ),
+    "ocr_scans": (
+        tool_ocr_scans,
+        tool_def(
+            "ocr_scans",
+            "Распознавание текста (OCR) со сканированных страниц PDF, чертежей и картинок (RapidOCR).",
+            {
+                "file_path": {"type": "string", "description": "Путь к файлу"},
+                "page_num": {"type": "integer", "description": "Номер страницы (по умолчанию 1)"},
+                "save_to_fts": {"type": "boolean", "description": "Дописать в индекс FTS5 (по умолчанию false)"},
+            },
+            ["file_path"],
+        ),
+    ),
+    "night_ops": (
+        tool_night_ops,
+        tool_def(
+            "night_ops",
+            "Регламентная ночная смена: цепочка (диагностика -> бэкап на Linux-сервер -> проверка кода -> отчет).",
+            {
+                "skip_server": {"type": "boolean", "description": "Пропустить отправку на сервер (по умолчанию false)"},
+            },
         ),
     ),
 }

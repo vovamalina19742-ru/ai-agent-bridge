@@ -25,5 +25,5 @@ __pycache__/
 Thumbs.db
 Desktop.ini
 .DS_Store
-.vscode/
-.idea/
+# Local backups
+backups/
