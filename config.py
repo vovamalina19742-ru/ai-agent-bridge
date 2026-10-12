@@ -21,7 +21,7 @@ def load_env():
 
 load_env()
 
-# Настройки удаленного Linux-сервера
+# Настройки удаленного Linux-сервера (значения по умолчанию переопределяются в .env)
 REMOTE_HOST = os.getenv("REMOTE_HOST", "192.168.1.100")
 REMOTE_USER = os.getenv("REMOTE_USER", "ubuntu")
 SERVER_MAC_PRIMARY = os.getenv("SERVER_MAC_PRIMARY", "00:11:22:33:44:55")
