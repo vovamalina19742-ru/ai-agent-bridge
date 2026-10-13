@@ -450,6 +450,32 @@ class TestAIAgentSmoke(unittest.TestCase):
         self.assertIn("'books'", hint_desc)
         self.assertIn("'bom'", hint_desc)
 
+    def test_bom_optimizer_and_accessories(self):
+        """Проверка математики раскроя трека и вывода аксессуаров KRAAB/Track в pipeline_bom"""
+        from tools.bom_optimizer import BOMOptimizer
+        from tools.pipeline_bom import parse_items_from_text, run_bom_pipeline
+
+        # 1. Проверяем расчет раскроя трека (хлысты 2м и 3м)
+        bom = BOMOptimizer.calculate_track_bom([{"length_m": 5.0, "has_corner_90": True}])
+        self.assertEqual(bom["profiles_2000mm"], 1)
+        self.assertEqual(bom["profiles_3000mm"], 1)
+        self.assertEqual(bom["corner_connectors_90"], 1)
+        self.assertEqual(bom["straight_connectors"], 1)
+        self.assertEqual(bom["end_caps"], 2)
+
+        # 2. Проверяем парсер pipeline_bom: появление автоматических аксессуаров
+        raw_text = "Трековый шинопровод 5м\nПрофиль KRAAB GIPPS 4м"
+        items = parse_items_from_text(raw_text, reserve_percent=0.0)
+        item_names = [it["name"] for it in items]
+        self.assertTrue(any("заглушк" in n.lower() for n in item_names))
+        self.assertTrue(any("коннектор" in n.lower() for n in item_names))
+        self.assertTrue(any("штифт" in n.lower() for n in item_names))
+
+        # 3. Проверяем генерацию минималистичной спецификации
+        table = run_bom_pipeline(raw_text)
+        self.assertIn("СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (BOM TAKEOFF)", table)
+        self.assertIn("Суммарный объем спецификации", table)
+
 
 if __name__ == "__main__":
     unittest.main()

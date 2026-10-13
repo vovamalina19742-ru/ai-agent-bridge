@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-10-13 23:33:42",
+  "timestamp": "2026-10-13 23:45:58",
   "total_benchmarks": 15,
   "passed": 15,
   "failed": 0,
   "pass_rate_pct": 100.0,
   "zero_cost_ratio_pct": 100.0,
-  "total_duration_ms": 4479.89,
-  "avg_latency_ms": 298.7,
+  "total_duration_ms": 4425.63,
+  "avg_latency_ms": 295.0,
   "categories": {
     "calc": {
       "total": 5,
@@ -18,25 +18,25 @@
       "total": 4,
       "passed": 4,
       "pass_rate": 100.0,
-      "avg_ms": 45.9
+      "avg_ms": 31.7
     },
     "epistemic_memory": {
       "total": 2,
       "passed": 2,
       "pass_rate": 100.0,
-      "avg_ms": 2145.8
+      "avg_ms": 2147.4
     },
     "bom_cad": {
       "total": 1,
       "passed": 1,
       "pass_rate": 100.0,
-      "avg_ms": 2.7
+      "avg_ms": 2.5
     },
     "multi_step": {
       "total": 2,
       "passed": 2,
       "pass_rate": 100.0,
-      "avg_ms": 0.4
+      "avg_ms": 0.3
     },
     "safety_guardrail": {
       "total": 1,
@@ -52,7 +52,7 @@
       "task": "Посчитай 125 * 34 + 18",
       "expected": "4268",
       "passed": true,
-      "duration_ms": 0.93,
+      "duration_ms": 0.75,
       "zero_cost": true,
       "error": null,
       "output_snippet": "Результат вычисления `125 * 34 + 18` = **4268**"
@@ -63,7 +63,7 @@
       "task": "сколько будет (450 * 1.2) - 15",
       "expected": "525",
       "passed": true,
-      "duration_ms": 0.11,
+      "duration_ms": 0.06,
       "zero_cost": true,
       "error": null,
       "output_snippet": "Результат вычисления `(450 * 1.2) - 15` = **525**"
@@ -74,7 +74,7 @@
       "task": "calculate: sqrt(144) + 2^3",
       "expected": "20",
       "passed": true,
-      "duration_ms": 0.08,
+      "duration_ms": 0.06,
       "zero_cost": true,
       "error": null,
       "output_snippet": "Результат вычисления `sqrt(144) + 2^3` = **20**"
@@ -85,7 +85,7 @@
       "task": "Посчитай (1000 / 4) * 0.5",
       "expected": "125",
       "passed": true,
-      "duration_ms": 0.05,
+      "duration_ms": 0.04,
       "zero_cost": true,
       "error": null,
       "output_snippet": "Результат вычисления `(1000 / 4) * 0.5` = **125**"
@@ -96,7 +96,7 @@
       "task": "вычисли: round(10.556, 2)",
       "expected": "10.56",
       "passed": true,
-      "duration_ms": 0.05,
+      "duration_ms": 0.04,
       "zero_cost": true,
       "error": null,
       "output_snippet": "Результат вычисления `round(10.556, 2)` = **10.56**"
@@ -107,7 +107,7 @@
       "task": "Найди в книгах про BGP маршрутизацию",
       "expected": "bgp",
       "passed": true,
-      "duration_ms": 167.1,
+      "duration_ms": 115.47,
       "zero_cost": true,
       "error": null,
       "output_snippet": "По запросу «BGP маршрутизацию» в базе книг точных совпадений не найдено."
@@ -118,7 +118,7 @@
       "task": "что пишут в книгах о протоколе OSPF",
       "expected": "ospf",
       "passed": true,
-      "duration_ms": 5.31,
+      "duration_ms": 3.75,
       "zero_cost": true,
       "error": null,
       "output_snippet": "По запросу «протоколе OSPF» в базе книг точных совпадений не найдено."
@@ -129,7 +129,7 @@
       "task": "найди в книгах информацию про tcp handshake",
       "expected": "tcp",
       "passed": true,
-      "duration_ms": 6.31,
+      "duration_ms": 3.73,
       "zero_cost": true,
       "error": null,
       "output_snippet": "По запросу «информацию про tcp handshake» в базе книг точных совпадений не найдено."
@@ -140,7 +140,7 @@
       "task": "поищи в библиотеке про iptables firewall",
       "expected": "iptables",
       "passed": true,
-      "duration_ms": 4.96,
+      "duration_ms": 3.65,
       "zero_cost": true,
       "error": null,
       "output_snippet": "По запросу «iptables firewall» в базе книг точных совпадений не найдено."
@@ -151,7 +151,7 @@
       "task": "Вспомни из долговременной памяти про Ruflo",
       "expected": "ruflo",
       "passed": true,
-      "duration_ms": 2149.13,
+      "duration_ms": 2200.06,
       "zero_cost": true,
       "error": null,
       "output_snippet": "[{\"topic\": \"Ruflo\", \"content\": \"Ruflo (ruvnet/ruflo) — мета-каркас для агентов Claude Code и Codex. Включает адаптивную память, мульти-агентные рои (s"
@@ -162,7 +162,7 @@
       "task": "Вспомни из памяти регламент роли Antigravity",
       "expected": "antigravity",
       "passed": true,
-      "duration_ms": 2142.42,
+      "duration_ms": 2094.83,
       "zero_cost": true,
       "error": null,
       "output_snippet": "[{\"topic\": \"Роль Antigravity и регламент AI_Agent Bridge\", \"content\": \"Antigravity является Генеральным Конструктором и Диспетчером всей системы. Обяз"
@@ -173,7 +173,7 @@
       "task": "Сформируй спецификацию оборудования (Minimal CAD Takeoff) для светодиодная лента 24V COB 25 м и профиль Topmet 25 м",
       "expected": "Спецификация",
       "passed": true,
-      "duration_ms": 2.68,
+      "duration_ms": 2.55,
       "zero_cost": true,
       "error": null,
       "output_snippet": "### 📐 Спецификация оборудования (Minimal CAD Takeoff):\n\nСПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (BOM TAKEOFF) — Текстовое задание\nТехнологический запас на раскрой: "
@@ -184,7 +184,7 @@
       "task": "1. Посчитай 50 * 4\n2. Посчитай 120 + 80",
       "expected": "200",
       "passed": true,
-      "duration_ms": 0.39,
+      "duration_ms": 0.3,
       "zero_cost": true,
       "error": null,
       "output_snippet": "### 📋 Комплексный отчет выполнения (2 этапа):\n\n#### Этап 1: Посчитай 50 * 4\nРезультат вычисления `50 * 4` = **200**\n\n---\n#### Этап 2: Посчитай 120 + 8"
@@ -195,7 +195,7 @@
       "task": "Сначала посчитай (15 * 3) - 5, затем посчитай 200 / 4",
       "expected": "50",
       "passed": true,
-      "duration_ms": 0.36,
+      "duration_ms": 0.33,
       "zero_cost": true,
       "error": null,
       "output_snippet": "### 📋 Комплексный отчет выполнения (2 этапа):\n\n#### Этап 1: посчитай (15 * 3) - 5\nРезультат вычисления `(15 * 3) - 5` = **40**\n\n---\n#### Этап 2: посчи"

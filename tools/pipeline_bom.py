@@ -12,6 +12,7 @@ import os
 import sys
 import re
 import csv
+import math
 import argparse
 from typing import List, Dict, Any
 
@@ -25,55 +26,101 @@ if sys.platform == "win32":
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
-# Каталог известных брендов и компонентов (KRAAB, Topmet, Neko, Smart Light, Mean Well)
+try:
+    from tools.bom_optimizer import (
+        BOMOptimizer,
+        BRAND_CATALOG,
+        classify_layer_name,
+        detect_drawing_scale,
+    )
+except ImportError:
+    from bom_optimizer import (
+        BOMOptimizer,
+        BRAND_CATALOG,
+        classify_layer_name,
+        detect_drawing_scale,
+    )
+
+# Каталог известных брендов и компонентов (KRAAB, Topmet, Neko, KLUS, Smart Light, Mean Well)
 CATALOG_DB = {
     # Специфичные светодиодные ленты
     "led_rgbw_24v": {
         "pattern": r"(rgb|rgbw|цветн).*лент",
         "name": "Светодиодная лента RGBW 24V 18W/m",
-        "unit": "м"
+        "unit": "м",
     },
-    # Блоки питания (сначала 200W, затем 100W без необязательного ?)
+    # Блоки питания (сначала 200W, затем 100W)
     "power_supply_200w": {
         "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well).*(150w|200w|240w|350w)",
         "name": "Блок питания Mean Well LRS-200-24 (200W 24V IP20)",
-        "unit": "шт."
+        "unit": "шт.",
     },
     "power_supply_100w": {
         "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well|источник).*(100w|100вт|120w|120вт)",
         "name": "Блок питания Mean Well LRS-100-24 (100W 24V IP20)",
-        "unit": "шт."
+        "unit": "шт.",
     },
-    # Профили
+    # Профили KRAAB Systems
+    "profile_shadow_kraab_gipps": {
+        "pattern": r"(теневой|шов|kraab).*(gipps|гкл|потолочн)",
+        "name": "Профиль теневого шва KRAAB GIPPS (ГКЛ 12.5мм, L=2.0м)",
+        "unit": "м",
+    },
+    "profile_baseboard_kraab_slk01": {
+        "pattern": r"(теневой|шов|kraab).*(плинтус|slk|slk01)",
+        "name": "Теневой плинтус скрытого монтажа KRAAB SLK01 (L=2.0м)",
+        "unit": "м",
+    },
+    "profile_curtain_kraab_kn01": {
+        "pattern": r"(скрыт|карниз|штор|kn01|kraab).*(карниз|kn01)",
+        "name": "Скрытый потолочный карниз для штор KRAAB KN01 (L=2.0м)",
+        "unit": "м",
+    },
     "profile_shadow_kraab": {
         "pattern": r"(теневой|шов|kraab|gipps|плинтус|карниз)",
         "name": "Профиль теневого шва KRAAB GIPPS (ГКЛ 12.5мм)",
-        "unit": "м"
+        "unit": "м",
+    },
+    "profile_klus": {
+        "pattern": r"(klus|giza|pds|kozel)",
+        "name": "Алюминиевый профиль KLUS с рассеивателем (L=2.0м)",
+        "unit": "м",
     },
     "profile_topmet": {
         "pattern": r"(профиль|короб|врезн|накладн).*(topmet|linea|slim|декор|алюм)",
         "name": "Алюминиевый профиль Topmet с матовым рассеивателем (L=2.0м)",
-        "unit": "м"
+        "unit": "м",
     },
-    # Трековые системы
+    # Трековые системы Neko Moduline
     "track_48v": {
         "pattern": r"(трек|магнитн|neko|moduline|шинопровод)",
         "name": "Магнитный трековый профиль Neko Moduline 26 48V (L=2.0м)",
-        "unit": "м"
+        "unit": "м",
     },
     # Светильники
     "downlight": {
         "pattern": r"(светильник|точечн|downlight|спот|встраиваем)",
         "name": "Встраиваемый точечный светильник Deep Anti-Glare 10W",
-        "unit": "шт."
+        "unit": "шт.",
     },
     # Общая светодиодная лента (в самом конце как fallback)
     "led_cob_24v": {
         "pattern": r"(лента|полоса|подсветк|cob|smd)",
         "name": "Светодиодная лента COB 24V 10W/m CRI>90 3000K",
-        "unit": "м"
-    }
+        "unit": "м",
+    },
 }
+
+# Дополняем каталог позициями из BRAND_CATALOG
+for _brand_info in BRAND_CATALOG.values():
+    for _item_code, _bitem in _brand_info.get("items", {}).items():
+        _code = _item_code.lower()
+        if _code not in CATALOG_DB:
+            CATALOG_DB[_code] = {
+                "pattern": rf"({re.escape(_code)}|{re.escape(_bitem['name'].lower())})",
+                "name": _bitem["name"],
+                "unit": _bitem.get("unit", "шт."),
+            }
 
 TOOL_SPEC = {
     "name": "pipeline_bom",
@@ -158,9 +205,38 @@ def extract_raw_text(file_path: str) -> str:
             doc = ezdxf.readfile(clean_path)
             msp = doc.modelspace()
             extracted = []
+            scale = 1.0
+            layer_lengths: Dict[str, float] = {}
             for e in msp:
-                if e.dxftype() in ("TEXT", "MTEXT"):
-                    extracted.append(e.dxf.text if hasattr(e.dxf, "text") else getattr(e, "text", ""))
+                dxftype = e.dxftype()
+                layer = getattr(e.dxf, "layer", "0")
+                if dxftype in ("TEXT", "MTEXT"):
+                    t = e.dxf.text if hasattr(e.dxf, "text") else getattr(e, "text", "")
+                    if t:
+                        extracted.append(t)
+                        sc = detect_drawing_scale(t)
+                        if sc:
+                            scale = sc
+                elif dxftype == "LINE":
+                    start = e.dxf.start
+                    end = e.dxf.end
+                    length = ((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2) ** 0.5
+                    layer_lengths[layer] = layer_lengths.get(layer, 0.0) + length
+                elif dxftype == "LWPOLYLINE":
+                    points = e.get_points(format="xy")
+                    plen = 0.0
+                    for i in range(len(points) - 1):
+                        p1, p2 = points[i], points[i + 1]
+                        plen += ((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) ** 0.5
+                    layer_lengths[layer] = layer_lengths.get(layer, 0.0) + plen
+
+            for layer, raw_len in layer_lengths.items():
+                cat = classify_layer_name(layer)
+                if cat != "other" and raw_len > 0:
+                    scaled_len = raw_len * scale
+                    len_m = (scaled_len / 1000.0) if scaled_len > 50 else scaled_len
+                    extracted.append(f"Слой {layer} ({cat}): {round(len_m, 2)}м")
+
             if extracted:
                 return "\n".join(extracted)
         except Exception:
@@ -234,9 +310,33 @@ def parse_items_from_text(raw_text: str, reserve_percent: float = 5.0) -> List[D
             items_map[cat_name] = {
                 "name": cat_name,
                 "unit": req_unit,
-                "raw_qty": 0.0
+                "raw_qty": 0.0,
             }
         items_map[cat_name]["raw_qty"] += val
+
+    # Автоматический инженерный расчет фурнитуры (Lighting Estimator PRO)
+    # 1. Трековые системы: заглушки и прямые коннекторы
+    track_keys = [k for k in items_map if "треков" in k.lower() or "moduline" in k.lower()]
+    for tk in track_keys:
+        track_len = items_map[tk]["raw_qty"]
+        if track_len > 0:
+            track_opt = BOMOptimizer.calculate_track_bom([{"length_m": track_len}])
+            end_cap_name = "Торцевая заглушка Neko Moduline 26"
+            if end_cap_name not in items_map and track_opt["end_caps"] > 0:
+                items_map[end_cap_name] = {"name": end_cap_name, "unit": "шт.", "raw_qty": float(track_opt["end_caps"])}
+            conn_name = "Прямой токопроводящий коннектор Neko Moduline 26"
+            if conn_name not in items_map and track_opt["straight_connectors"] > 0:
+                items_map[conn_name] = {"name": conn_name, "unit": "шт.", "raw_qty": float(track_opt["straight_connectors"])}
+
+    # 2. Профиль KRAAB GIPPS: стыковочные штифты
+    kraab_keys = [k for k in items_map if "kraab gipps" in k.lower()]
+    for kk in kraab_keys:
+        kraab_len = items_map[kk]["raw_qty"]
+        if kraab_len > 0:
+            pins_name = "Стыковочные штифты KRAAB 2мм"
+            if pins_name not in items_map:
+                pins_qty = max(2, int(math.ceil(kraab_len / 2.0)) * 2)
+                items_map[pins_name] = {"name": pins_name, "unit": "шт.", "raw_qty": float(pins_qty)}
 
     # Применяем технологический запас на раскрой лент и профилей
     result_list = []
@@ -250,7 +350,7 @@ def parse_items_from_text(raw_text: str, reserve_percent: float = 5.0) -> List[D
         result_list.append({
             "name": item["name"],
             "unit": item["unit"],
-            "qty": qty
+            "qty": qty,
         })
 
     return result_list
