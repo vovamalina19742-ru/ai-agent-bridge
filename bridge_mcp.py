@@ -34,9 +34,11 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from config import QUEUE_DB_PATH
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOOLS_DIR = os.path.join(BASE_DIR, "tools")
-QUEUE_DB = os.getenv("QUEUE_DB_PATH", os.path.join(BASE_DIR, "bridge_queue.db"))
+QUEUE_DB = QUEUE_DB_PATH
 LOG_FILE = os.path.join(BASE_DIR, "bridge_mcp.log")
 
 
@@ -44,13 +46,11 @@ LOG_FILE = os.path.join(BASE_DIR, "bridge_mcp.log")
 MAX_TOOL_OUTPUT_CHARS = 4000
 MAX_SUMMARY_CHARS = 2000
 
-# Черный список деструктивных команд для server_exec (находка F2 из ревью)
-FORBIDDEN_COMMANDS = [
-    "rm -rf", "rm -fr", "mkfs", "dd if=", "dd of=", "shutdown", "reboot", "halt",
-    ":(){", ">/dev/sd", "> /dev/sd", "chmod -r 777", "chown -r", "userdel",
-    "passwd", "wipefs", "fdisk", "parted", "history -c", "init 0", "init 6",
-    "systemctl poweroff", "systemctl reboot", "nohup rm", "truncate -s",
-]
+# Белый список разрешенных структурированных операций для server_exec (Allowlist Matrix)
+ALLOWED_SERVER_OPERATIONS = {
+    "get_disk_space", "docker_ps", "ram_info", "uptime_info",
+    "check_service_status", "restart_service", "tail_logs"
+}
 
 
 def log(msg):
@@ -222,25 +222,33 @@ def tool_memory(args):
     return _text_result(run_tool_script("memory_manager.py", cli, timeout=30))
 
 
-def _server_guard(command):
-    low = (command or "").lower()
-    for bad in FORBIDDEN_COMMANDS:
-        if bad in low:
-            return True
-    return False
-
-
 def tool_server_exec(args):
-    command = (args.get("command") or "").strip()
-    if not command:
-        return _text_result("[!] Обязателен параметр command", is_error=True)
-    if _server_guard(command):
-        log(f"BLOCKED server_exec: {command[:100]}")
+    operation = (args.get("operation") or args.get("command") or "").strip().lower()
+    target = (args.get("target") or "").strip()
+    if not operation:
         return _text_result(
-            "[!] Команда заблокирована защитным фильтром bridge_mcp (деструктивный паттерн).",
+            f"[!] Укажите разрешенную операцию. Доступны: {', '.join(sorted(ALLOWED_SERVER_OPERATIONS))}",
             is_error=True,
         )
-    return _text_result(run_tool_script("remote_server.py", ["exec", command], timeout=60))
+
+    parts = operation.split()
+    if len(parts) > 1:
+        operation = parts[0]
+        if not target:
+            target = parts[1]
+
+    if operation not in ALLOWED_SERVER_OPERATIONS:
+        log(f"REJECTED server_exec: operation={operation}")
+        return _text_result(
+            f"[!] Операция '{operation}' отклонена политикой безопасности (Allowlist).\n"
+            f"Произвольные bash-команды запрещены. Разрешены только: {', '.join(sorted(ALLOWED_SERVER_OPERATIONS))}",
+            is_error=True,
+        )
+
+    cli = [operation]
+    if target:
+        cli.extend(["--target", target])
+    return _text_result(run_tool_script("remote_server.py", cli, timeout=30))
 
 
 def tool_server_status(args):
@@ -459,9 +467,18 @@ TOOLS = {
         tool_server_exec,
         tool_def(
             "server_exec",
-            "Выполнить bash-команду на Linux-сервере через SSH. Деструктивные команды блокируются фильтром.",
-            {"command": {"type": "string", "description": "Bash-команда"}},
-            ["command"],
+            "Выполнить безопасную операцию на Linux-сервере через строгий белый список (Allowlist). Доступные операции: get_disk_space, docker_ps, ram_info, uptime_info, check_service_status, restart_service, tail_logs.",
+            {
+                "operation": {
+                    "type": "string",
+                    "description": "Разрешенная операция: get_disk_space, docker_ps, ram_info, uptime_info, check_service_status, restart_service, tail_logs",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Имя службы для check_service_status, restart_service, tail_logs (например: searxng, casaos, ollama, docker)",
+                },
+            },
+            ["operation"],
         ),
     ),
     "status_report": (

@@ -10,8 +10,8 @@ sys.path.insert(0, BASE_DIR)
 class TestAIAgentSmoke(unittest.TestCase):
 
     def test_safety_guardrails(self):
-        """Проверка блокировки деструктивных команд защитным фильтром"""
-        from tools.remote_server import FORBIDDEN_PATTERNS
+        """Проверка блокировки деструктивных команд и инъекций матрицей Allowlist"""
+        from tools.remote_server import execute_remote_allowed_action, ALLOWED_OPERATIONS
 
         dangerous_commands = [
             "rm -rf /",
@@ -19,12 +19,31 @@ class TestAIAgentSmoke(unittest.TestCase):
             "dd if=/dev/zero of=/dev/sda",
             "chmod -R 777 /",
             "init 0",
-            ":(){ :|:& };:"
+            ":(){ :|:& };:",
+            "cat /etc/shadow"
         ]
 
+        # 1. Попытка выполнить произвольную команду отклоняется
         for cmd in dangerous_commands:
-            matched = any(pattern in cmd.lower() for pattern in FORBIDDEN_PATTERNS)
-            self.assertTrue(matched, f"Опасная команда не заблокирована: {cmd}")
+            res = execute_remote_allowed_action(cmd)
+            self.assertFalse(res["success"], f"Опасная команда не была заблокирована Allowlist: {cmd}")
+            self.assertIn("отклонена политикой безопасности", res["error"])
+
+        # 2. Попытка инъекции через имя службы блокируется
+        injection_targets = ["searxng; rm -rf /", "ollama | reboot", "docker && cat /etc/passwd"]
+        for target in injection_targets:
+            res = execute_remote_allowed_action("restart_service", target=target)
+            self.assertFalse(res["success"])
+            self.assertIn("Некорректный или пустой аргумент", res["error"])
+
+        # 3. Попытка обращения к неразрешенной службе блокируется
+        res_unauthorized = execute_remote_allowed_action("restart_service", target="unauthorized_service")
+        self.assertFalse(res_unauthorized["success"])
+        self.assertIn("не входит в белый список", res_unauthorized["error"])
+
+        # 4. Проверка присутствия базовых разрешенных операций
+        self.assertIn("get_disk_space", ALLOWED_OPERATIONS)
+        self.assertIn("docker_ps", ALLOWED_OPERATIONS)
 
     def test_env_loading(self):
         """Проверка наличия конфигурационного шаблона и ключей"""
@@ -69,6 +88,21 @@ class TestAIAgentSmoke(unittest.TestCase):
         # Длинная задача (>300 символов) повышается до 7b
         long_task = "x" * 350
         self.assertEqual(bridge_worker.route_model("fast", long_task), "qwen2.5-coder:7b")
+
+    def test_unified_config(self):
+        """Проверка централизованной конфигурации и валидации обязательных параметров"""
+        import config
+
+        self.assertTrue(hasattr(config, "QUEUE_DB_PATH"))
+        self.assertTrue(hasattr(config, "DATABASE_PATH"))
+        self.assertTrue(hasattr(config, "OLLAMA_BASE_URL"))
+        self.assertTrue(hasattr(config, "REMOTE_HOST"))
+        self.assertTrue(hasattr(config, "REMOTE_USER"))
+        self.assertTrue(hasattr(config, "WEB_UI_PORT"))
+
+        # Проверка генерации исключения при отсутствии обязательной переменной
+        with self.assertRaises(config.ConfigError):
+            config._get_env("NON_EXISTENT_VAR_12345", required=True)
 
 if __name__ == "__main__":
     unittest.main()

@@ -125,10 +125,12 @@ class ModelProvider:
             return False
 
 
+from config import OLLAMA_BASE_URL, REMOTE_OLLAMA_URL, DEFAULT_MODEL
+
 # Глобальные инстансы сервисов
 db_pool = DatabasePool()
-primary_provider = ModelProvider("http://localhost:11434", "qwen2.5-coder:7b")
-fallback_provider = ModelProvider("http://192.168.1.100:11434", "qwen2.5-coder:7b")
+primary_provider = ModelProvider(OLLAMA_BASE_URL, DEFAULT_MODEL)
+fallback_provider = ModelProvider(REMOTE_OLLAMA_URL, DEFAULT_MODEL)
 
 # =====================================================================
 # 4. Semantic Tool Aliases (Семантические имена для 7B/8B моделей)

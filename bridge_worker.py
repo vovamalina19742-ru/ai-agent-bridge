@@ -31,7 +31,9 @@ if sys.platform == "win32":
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-QUEUE_DB = os.getenv("QUEUE_DB_PATH", os.path.join(BASE_DIR, "bridge_queue.db"))
+from config import QUEUE_DB_PATH
+
+QUEUE_DB = QUEUE_DB_PATH
 WORKER_LOG = os.path.join(BASE_DIR, "bridge_worker.log")
 
 MAX_SUMMARY_CHARS = 2000
