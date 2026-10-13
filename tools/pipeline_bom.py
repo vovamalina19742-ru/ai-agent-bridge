@@ -243,22 +243,26 @@ def generate_bom_takeoff(file_path: str, reserve_percent: float = 5.0, output_cs
     """
     Генерирует лаконичную спецификацию строго по регламенту Minimal CAD Takeoff.
     Формат: №, Наименование, Количество шт./м, итоговая строка.
+    Поддерживает как пути к файлам (.dxf/.dwg/.pdf/.txt), так и текстовые описания/выноски.
     """
-    clean_path = file_path.strip().strip("'\"")
-    if not os.path.exists(clean_path):
-        return f"[-] Ошибка: Файл '{clean_path}' не существует."
+    clean_input = file_path.strip().strip("'\"")
+    if os.path.exists(clean_input):
+        raw_text = extract_raw_text(clean_input)
+        title = os.path.basename(clean_input)
+    else:
+        raw_text = clean_input
+        title = "Текстовое задание"
 
-    raw_text = extract_raw_text(clean_path)
     if not raw_text:
-        return f"[-] Не удалось извлечь инженерные данные из файла '{os.path.basename(clean_path)}'."
+        return f"[-] Не удалось извлечь инженерные данные."
 
     items = parse_items_from_text(raw_text, reserve_percent=reserve_percent)
     if not items:
-        return f"[-] На чертеже '{os.path.basename(clean_path)}' не обнаружено специфицируемых позиций освещения."
+        return f"[-] Не обнаружено специфицируемых позиций освещения."
 
     # Формируем таблицу строго по регламенту Minimal CAD Takeoff
     lines = [
-        f"СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (BOM TAKEOFF) — {os.path.basename(clean_path)}",
+        f"СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (BOM TAKEOFF) — {title}",
         f"Технологический запас на раскрой: {reserve_percent}%",
         "",
         "| № | Наименование | Количество шт./м |",
@@ -293,16 +297,21 @@ def generate_bom_takeoff(file_path: str, reserve_percent: float = 5.0, output_cs
     lines.append(f"| **ИТОГО** | **Суммарный объем спецификации** | **{total_str}** |")
 
     # Экспорт в CSV (если указан или сохраняем по умолчанию рядом)
-    csv_target = output_csv or os.path.splitext(clean_path)[0] + "_BOM.csv"
-    try:
-        with open(csv_target, "w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerows(csv_rows)
-        lines.append(f"\n[✓] Экспорт для CRM успешно сохранен: {os.path.basename(csv_target)}")
-    except Exception as e:
-        lines.append(f"\n[!] Предупреждение: не удалось сохранить CSV: {e}")
+    csv_target = output_csv if output_csv else (os.path.splitext(clean_input)[0] + "_BOM.csv" if os.path.exists(clean_input) else None)
+    if csv_target:
+        try:
+            with open(csv_target, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f, delimiter=";")
+                writer.writerows(csv_rows)
+            lines.append(f"\n[✓] Экспорт для CRM успешно сохранен: {os.path.basename(csv_target)}")
+        except Exception as e:
+            lines.append(f"\n[!] Предупреждение: не удалось сохранить CSV: {e}")
 
     return "\n".join(lines)
+
+
+# Публичный алиас функции конвейера
+run_bom_pipeline = generate_bom_takeoff
 
 
 def main():

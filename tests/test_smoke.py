@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import sqlite3
 import unittest
 
@@ -351,6 +352,35 @@ class TestAIAgentSmoke(unittest.TestCase):
             memory_manager.MEMORY_FILE = orig_file
             memory_manager.CACHE_FILE = orig_cache
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_golden_benchmark_dataset(self):
+        """Проверка целостности и структуры Golden Benchmark Dataset (Этап 4)"""
+        dataset_path = os.path.join(BASE_DIR, "benchmarks", "dataset.json")
+        self.assertTrue(os.path.exists(dataset_path), "Файл benchmarks/dataset.json не найден!")
+
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self.assertIn("benchmarks", data)
+        items = data["benchmarks"]
+        self.assertGreaterEqual(len(items), 15, "В Golden Dataset должно быть не менее 15 эталонных задач!")
+
+        required_keys = {"id", "category", "task", "expected_result"}
+        categories_found = set()
+        for it in items:
+            for k in required_keys:
+                self.assertIn(k, it, f"У задачи {it.get('id')} отсутствует обязательное поле '{k}'")
+            categories_found.add(it["category"])
+
+        expected_categories = {"calc", "book_search", "epistemic_memory", "bom_cad", "multi_step", "safety_guardrail"}
+        self.assertTrue(expected_categories.issubset(categories_found), f"Отсутствуют категории: {expected_categories - categories_found}")
+
+        # Проверка наличия свежего отчета бенчмарка
+        report_path = os.path.join(BASE_DIR, "benchmarks", "latest_report.json")
+        if os.path.exists(report_path):
+            with open(report_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            self.assertEqual(report.get("pass_rate_pct"), 100.0, "Pass@1 бенчмарка должен быть 100%!")
 
 
 if __name__ == "__main__":

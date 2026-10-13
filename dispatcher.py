@@ -151,7 +151,7 @@ def safe_eval_math_expression(expr_str: str) -> Tuple[bool, Any]:
 # ---------------------------------------------------------------------------
 
 CALC_TRIGGER_PATTERNS = [
-    r"^\s*(?:посчитай|вычисли|сколько будет|calculate|calc:)\s*(.+)$",
+    r"^\s*(?:посчитай:?|вычисли:?|сколько будет:?|calculate:?|calc:?)\s*(.+)$",
     r"^\s*([0-9\.\s\+\-\*\/\(\)\^\%×÷]+)\s*=?\s*$",
 ]
 
@@ -161,7 +161,7 @@ BOOK_SEARCH_PATTERNS = [
 ]
 
 BOM_PATTERNS = [
-    r"(?:посчитай|сделай|сформируй|составь|извлеки)\s+(?:спецификаци[а-я]*|смет[а-я]*|bom)\s+(?:из|по|чертеж[а-я]*)\s*(.+)?",
+    r"(?:посчитай|сделай|сформируй|составь|извлеки)\s+(?:спецификаци[а-я]*|смет[а-я]*|bom)\b.*",
     r"pipeline_bom:\s*(.+)",
     r"\.(?:dxf|dwg)\b",
 ]
@@ -275,26 +275,28 @@ class TaskDecomposer:
 
         if len(extracted_numbered) >= 2:
             for idx, text in extracted_numbered:
-                cat, _ = classify_task(text)
+                clean_t = text.strip().rstrip(";,.")
+                cat, _ = classify_task(clean_t)
                 steps.append(SubTask(
                     step=idx,
-                    title=text[:60],
+                    title=clean_t[:60],
                     action_type=cat.value,
-                    payload=text
+                    payload=clean_t
                 ))
             return steps
 
         # Вариант 2: Разделение по фразам-маркерам (сначала / затем / после этого)
         split_markers = r"(?:^|\s+)(?:сначала|затем|потом|после этого|далее|в конце|наконец)[\s,:]+"
-        parts = [p.strip() for p in re.split(split_markers, task_text, flags=re.IGNORECASE) if p.strip()]
+        parts = [p.strip().rstrip(";,.") for p in re.split(split_markers, task_text, flags=re.IGNORECASE) if p.strip()]
         if len(parts) >= 2:
             for i, part in enumerate(parts, 1):
-                cat, _ = classify_task(part)
+                clean_p = part.strip().rstrip(";,.")
+                cat, _ = classify_task(clean_p)
                 steps.append(SubTask(
                     step=i,
-                    title=part[:60],
+                    title=clean_p[:60],
                     action_type=cat.value,
-                    payload=part
+                    payload=clean_p
                 ))
             return steps
 
@@ -328,15 +330,18 @@ def execute_direct_book_search(query: str) -> ExecutionResult:
 def execute_direct_bom(input_text: str) -> ExecutionResult:
     """Выполняет прямой запуск конвейера спецификаций Minimal CAD Takeoff."""
     try:
+        from tools.pipeline_bom import run_bom_pipeline
         # Ищем путь к файлу в тексте задачи
         dxf_match = re.search(r"([a-zA-Z]:[\\/][^ \r\n\t]+\.(?:dxf|dwg))|([^ \r\n\t]+\.(?:dxf|dwg))", input_text)
         if dxf_match:
             dxf_path = dxf_match.group(0)
-            from tools.pipeline_bom import run_bom_pipeline
             report = run_bom_pipeline(dxf_path)
             return ExecutionResult.ok(f"### 📐 Спецификация оборудования (Minimal CAD Takeoff):\n\n{report}", iterations=1)
         else:
-            return ExecutionResult.fail("Не указан путь к файлу чертежа (.dxf/.dwg)", is_retryable=False)
+            report = run_bom_pipeline(input_text)
+            if "СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ" in report or "№" in report:
+                return ExecutionResult.ok(f"### 📐 Спецификация оборудования (Minimal CAD Takeoff):\n\n{report}", iterations=1)
+            return ExecutionResult.fail("Не указан чертеж или специфицируемые позиции", is_retryable=False)
     except Exception as e:
         return ExecutionResult.fail(f"Ошибка BOM пайплайна: {e}", is_retryable=False)
 
@@ -378,8 +383,13 @@ def dispatch_and_execute(task_text: str, worker_hint: str = "") -> ExecutionResu
             context_accumulator = []
             for s in steps:
                 step_task_text = s.payload
-                if context_accumulator:
-                    # Добавляем краткую выжимку предыдущих результатов в контекст
+                step_cat, _ = classify_task(step_task_text)
+                if context_accumulator and step_cat not in (
+                    TaskCategory.DETERMINISTIC_CALC,
+                    TaskCategory.DIRECT_BOOK_SEARCH,
+                    TaskCategory.DIRECT_BOM_PIPELINE
+                ):
+                    # Добавляем краткую выжимку предыдущих результатов только для генеративных шагов
                     step_task_text += f"\n[Контекст предыдущих шагов]:\n" + "\n".join(context_accumulator[-2:])
 
                 step_res = dispatch_and_execute(step_task_text, worker_hint=worker_hint)

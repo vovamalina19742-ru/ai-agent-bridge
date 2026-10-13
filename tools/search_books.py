@@ -99,6 +99,23 @@ def search_fts(query, book_filter=None, limit=5):
         print(f"[!] Предупреждение FTS5: {e}")
         return None
 
+
+def search_books(query: str, book_filter: str = None, limit: int = 5):
+    """Программный API для поиска по книгам, возвращающий список словарей."""
+    rows = search_fts(query, book_filter=book_filter, limit=limit)
+    if rows:
+        return [
+            {
+                "book": r[0],
+                "page": r[1],
+                "snippet": clean_snippet(r[2]),
+                "rank": r[3]
+            }
+            for r in rows
+        ]
+    return []
+
+
 def fallback_pdf_search(query, book_filter=None, max_books=2):
     """Резервный медленный поиск по сырым PDF (если база FTS еще не проиндексирована)."""
     if not os.path.exists(BOOKS_DIR):
