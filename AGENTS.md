@@ -9,7 +9,7 @@
   - Роутер `orchestrator.py` поддерживает двойной маппинг (35 ключей на 17 файлов), обеспечивая 100% точность вызова.
 - **Единый пул соединений и сервисов (`services.py`):**
   - Потокобезопасный `DatabasePool` с автоматическим `PRAGMA journal_mode=WAL;` и `busy_timeout=5000` (защита от "database is locked").
-  - `ModelProvider` с автоматическим Failover: если локальная Ollama перегружена, запрос уходит на удаленный узел Linux `192.168.1.100`.
+  - `ModelProvider` с автоматическим Failover: если локальная Ollama перегружена, запрос уходит на удаленный узел Linux (адрес задаётся в `.env` → `REMOTE_HOST`).
   - `ToolExecutionResult` (Graceful Degradation): изолирует падения утилит и возвращает структурированный JSON с подсказкой для модели.
 - **Трехуровневая память и персистентность сессий:** 
   1. Долговременная сессия (`session_store.py` $\to$ `session.json`): атомарное сохранение истории диалога.
@@ -36,7 +36,7 @@
 | **`pipeline_bom.py`** | `generate_blueprint_bom_takeoff_specification` | Конвейер Blueprint-to-BOM: извлечение оборудования, привязка к каталогам, экспорт CSV |
 | **`ocr_scans.py`** | `recognize_text_from_images_and_scans` | Локальный OCR чертежей и сканов на русском и английском (RapidOCR) |
 | **`cad_extractor.py`** | `extract_equipment_from_cad_and_blueprints` | Парсинг и подсчет оборудования по чертежам и схемам |
-| **`network_scanner.py`** | `scan_local_network_hosts_and_ips` | Многопоточный ping-sweep подсети `192.168.1.x` с извлечением MAC |
+| **`network_scanner.py`** | `scan_local_network_hosts_and_ips` | Многопоточный ping-sweep локальной подсети (из `.env`) с извлечением MAC |
 | **`port_checker.py`** | `check_network_port_open` | Проверка доступности портов TCP на любом хосте |
 | **`remote_server.py`** | `execute_commands_on_linux_server` | Управление Linux-узлом (wake, sleep, status, exec с guardrails) |
 | **`night_ops.py`** | `run_nightly_maintenance_chain` | Автоматизированный ночной пайплайн обслуживания |

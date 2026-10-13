@@ -71,7 +71,7 @@ def scan_network(prefix="192.168.1"):
                 if len(parts) >= 2:
                     mac = parts[1]
                 break
-        print(f"{ip:<18} {mac:<20} active")
+            print(f"{ip:<18} {mac:<20} active")
     print("-" * 50)
 
 if __name__ == "__main__":
