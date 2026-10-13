@@ -150,6 +150,7 @@ SEMANTIC_TOOL_ALIASES = {
     # Документы, код и сканы
     "doc_reader": "read_and_parse_local_document_file",
     "code_check": "verify_and_lint_code_syntax",
+    "auto_refactor": "self_healing_code_refactor_and_fix",
     "ocr_scans": "recognize_text_from_images_and_scans",
     "cad_extractor": "extract_equipment_from_cad_and_blueprints",
     

@@ -300,6 +300,18 @@ def tool_code_check(args):
     return _text_result(run_tool_script("code_check.py", cli, timeout=45))
 
 
+def tool_auto_refactor(args):
+    target = (args.get("target_file") or "").strip()
+    if not target:
+        return _text_result("[!] Обязателен параметр target_file", is_error=True)
+    cli = [target]
+    if args.get("instruction"):
+        cli.extend(["--instruction", str(args["instruction"])])
+    if args.get("max_attempts"):
+        cli.extend(["--attempts", str(args["max_attempts"])])
+    return _text_result(run_tool_script("auto_refactor.py", cli, timeout=180))
+
+
 def tool_ocr_scans(args):
     file_path = (args.get("file_path") or "").strip()
     if not file_path:
@@ -494,6 +506,19 @@ TOOLS = {
                 "fix_lint": {"type": "boolean", "description": "Автофикс через ruff (по умолчанию false)"},
             },
             ["target_path"],
+        ),
+    ),
+    "auto_refactor": (
+        tool_auto_refactor,
+        tool_def(
+            "auto_refactor",
+            "Автономный цикл самоисправления кода (Self-Healing Code Loop): находит синтаксические ошибки, исправляет через qwen2.5-coder, валидирует себя и возвращает unified diff.",
+            {
+                "target_file": {"type": "string", "description": "Путь к исходному файлу"},
+                "instruction": {"type": "string", "description": "Дополнительная инструкция по исправлению"},
+                "max_attempts": {"type": "integer", "description": "Лимит попыток (по умолчанию 3)"},
+            },
+            ["target_file"],
         ),
     ),
     "ocr_scans": (
