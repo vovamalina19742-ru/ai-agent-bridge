@@ -200,6 +200,17 @@ def self_healing_refactor(file_path, instruction="", max_attempts=3):
                 fixed_successfully = True
                 current_code = suggested_code
                 report_lines.append(f"[✓] Успех на попытке {attempt}! Код прошел синтаксическую валидацию.")
+                # Сохраняем извлеченный урок в долговременную память (Epistemic Hygiene)
+                try:
+                    from tools import memory_manager
+                    memory_manager.action_save_lesson(
+                        topic=f"AutoRefactor: {os.path.basename(file_path)}",
+                        mistake=str(current_error)[:200],
+                        fix=f"Успешно исправлено моделью {DEFAULT_MODEL} на попытке {attempt}"
+                    )
+                    report_lines.append("[✓] Урок самоисцеления сохранен в долговременную память.")
+                except Exception:
+                    pass
                 break
             else:
                 report_lines.append(f"[!] Попытка {attempt} не устранила ошибку: {test_err}")

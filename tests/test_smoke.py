@@ -382,6 +382,48 @@ class TestAIAgentSmoke(unittest.TestCase):
                 report = json.load(f)
             self.assertEqual(report.get("pass_rate_pct"), 100.0, "Pass@1 бенчмарка должен быть 100%!")
 
+    def test_self_healing_refactor_guardrail(self):
+        """Проверка цикла самоисправления кода и защитного отката при ошибке (Этап 5)"""
+        import tempfile
+        import shutil
+        from tools import auto_refactor
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            # 1. Валидный файл -> check_file_errors возвращает True
+            valid_py = os.path.join(tmp_dir, "valid.py")
+            with open(valid_py, "w", encoding="utf-8") as f:
+                f.write("def add(a, b):\n    return a + b\n")
+            ok, msg = auto_refactor.check_file_errors(valid_py)
+            self.assertTrue(ok, f"Валидный файл был ошибочно помечен как невалидный: {msg}")
+
+            # 2. Файл с синтаксической ошибкой -> check_file_errors возвращает False
+            broken_py = os.path.join(tmp_dir, "broken.py")
+            broken_content = "def broken(\n    return 42\n"
+            with open(broken_py, "w", encoding="utf-8") as f:
+                f.write(broken_content)
+            ok, err = auto_refactor.check_file_errors(broken_py)
+            self.assertFalse(ok, "Синтаксическая ошибка не была обнаружена!")
+            self.assertTrue(len(err) > 0)
+
+            # 3. Защитный откат: если модель возвращает невалидный код, файл не разрушается
+            orig_call = auto_refactor.call_llm_fix
+            try:
+                # Симулируем ответ модели с сохранением синтаксической ошибки
+                auto_refactor.call_llm_fix = lambda code, err, instr="", model="": "def still_broken(\n"
+                res = auto_refactor.self_healing_refactor(broken_py, max_attempts=1)
+                self.assertIn("безопасно откачен", res)
+
+                # Проверяем, что файл остался исходным и не разрушен
+                with open(broken_py, "r", encoding="utf-8") as f:
+                    reloaded = f.read()
+                self.assertEqual(reloaded, broken_content, "Файл не был корректно откачен к исходному состоянию!")
+            finally:
+                auto_refactor.call_llm_fix = orig_call
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
