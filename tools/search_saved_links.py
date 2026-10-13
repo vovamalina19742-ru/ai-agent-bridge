@@ -10,12 +10,18 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Импорт локального движка эмбеддингов
+# Импорт локального движка эмбеддингов и реестра сервисов
 try:
     import embedding_engine
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     import embedding_engine
+
+try:
+    from services import EpistemicMemoryStore
+except ImportError:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from services import EpistemicMemoryStore
 
 TOOL_SPEC = {
     "name": "search_saved_links",
@@ -37,7 +43,17 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 SAVED_LINKS_FILE = os.path.join(PROJECT_ROOT, "saved_links.json")
 CACHE_FILE = os.path.join(PROJECT_ROOT, "links_embeddings.json")
 
+_store = EpistemicMemoryStore()
+_store.migrate_from_json_files(PROJECT_ROOT)
+
 def load_saved_links():
+    """Загружает сохраненные ссылки из SQLite WAL через DatabasePool."""
+    try:
+        links = _store.load_saved_links()
+        if links:
+            return links
+    except Exception:
+        pass
     if os.path.exists(SAVED_LINKS_FILE):
         try:
             with open(SAVED_LINKS_FILE, "r", encoding="utf-8") as f:
@@ -48,6 +64,13 @@ def load_saved_links():
     return []
 
 def load_cache():
+    """Загружает кэш эмбеддингов ссылок из SQLite WAL."""
+    try:
+        cache = _store.load_embedding_cache()
+        if cache:
+            return cache
+    except Exception:
+        pass
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
@@ -57,11 +80,16 @@ def load_cache():
     return {}
 
 def save_cache(cache):
+    """Сохраняет кэш эмбеддингов ссылок в SQLite WAL."""
     try:
-        tmp = CACHE_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False)
-        os.replace(tmp, CACHE_FILE)
+        _store.save_embedding_cache_batch(cache)
+        try:
+            tmp = CACHE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False)
+            os.replace(tmp, CACHE_FILE)
+        except Exception:
+            pass
     except Exception:
         pass
 

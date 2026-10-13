@@ -476,6 +476,53 @@ class TestAIAgentSmoke(unittest.TestCase):
         self.assertIn("СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ (BOM TAKEOFF)", table)
         self.assertIn("Суммарный объем спецификации", table)
 
+    def test_epistemic_memory_sqlite_wal(self):
+        """Проверка хранилища эпистемической памяти и векторных эмбеддингов в SQLite WAL"""
+        import tempfile
+        import shutil
+        from services import EpistemicMemoryStore
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            tmp_db = os.path.join(tmp_dir, "test_memory.db")
+            store = EpistemicMemoryStore(db_path=tmp_db)
+
+            # 1. Проверяем сохранение и чтение фактов
+            test_rec = {
+                "id": "mem_test01",
+                "topic": "Тестовый факт",
+                "content": "Содержимое тестового факта",
+                "memory_type": "decision",
+                "verification_status": "verified",
+                "confidence": 0.95,
+                "source": "test",
+                "tags": ["unit-test", "sqlite-wal"],
+                "created_at": "2026-10-14 00:00",
+                "updated_at": "2026-10-14 00:00",
+            }
+            store.save_memory_record(test_rec)
+            loaded = store.load_all_memories()
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["id"], "mem_test01")
+            self.assertEqual(loaded[0]["tags"], ["unit-test", "sqlite-wal"])
+            self.assertEqual(loaded[0]["confidence"], 0.95)
+
+            # 2. Проверяем кэш эмбеддингов (упаковка float32 в BLOB и распаковка)
+            vec = [0.123, -0.456, 0.789]
+            store.save_embedding_cache_batch({"test_key": vec})
+            cache = store.load_embedding_cache()
+            self.assertIn("test_key", cache)
+            self.assertAlmostEqual(cache["test_key"][0], 0.123, places=3)
+            self.assertAlmostEqual(cache["test_key"][2], 0.789, places=3)
+
+            # 3. Проверяем сохранение ссылок
+            store.save_saved_link("https://example.com/arch", "Архитектура", "Сводка статьи")
+            links = store.load_saved_links()
+            self.assertEqual(len(links), 1)
+            self.assertEqual(links[0]["url"], "https://example.com/arch")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

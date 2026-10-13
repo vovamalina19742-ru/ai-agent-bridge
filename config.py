@@ -49,6 +49,7 @@ def _get_env(key: str, default: str = None, required: bool = False) -> str:
 # ---------------- Базовые пути и хранилище ----------------
 DATABASE_PATH = _get_env("DATABASE_PATH", os.path.join(BASE_DIR, "books_index.db"))
 QUEUE_DB_PATH = _get_env("QUEUE_DB_PATH", os.path.join(BASE_DIR, "bridge_queue.db"))
+MEMORY_DB_PATH = _get_env("MEMORY_DB_PATH", os.path.join(BASE_DIR, "memory.db"))
 BOOKS_DIR = _get_env("BOOKS_DIR", r"G:\Мой диск\книги")
 
 # ---------------- Настройки локальной и удаленной Ollama ----------------

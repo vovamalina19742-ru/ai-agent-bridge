@@ -30,17 +30,27 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Импорт движка эмбеддингов
+# Импорт движка эмбеддингов и реестра сервисов
 try:
     import embedding_engine
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     import embedding_engine
 
+try:
+    from services import EpistemicMemoryStore
+except ImportError:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from services import EpistemicMemoryStore
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 MEMORY_FILE = os.path.join(PROJECT_ROOT, "memory.json")
 CACHE_FILE = os.path.join(PROJECT_ROOT, "memory_embeddings.json")
+
+# Инициализируем хранилище памяти SQLite WAL и выполняем авто-миграцию
+_store = EpistemicMemoryStore()
+_store.migrate_from_json_files(PROJECT_ROOT)
 
 TOOL_SPEC = {
     "name": "manage_memory",
@@ -124,7 +134,13 @@ def normalize_record(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_memory() -> List[Dict[str, Any]]:
-    """Загружает память с автоматической нормализацией схемы."""
+    """Загружает память из SQLite WAL через DatabasePool с авто-нормализацией."""
+    try:
+        memories = _store.load_all_memories()
+        if memories:
+            return [normalize_record(item) for item in memories]
+    except Exception:
+        pass
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
@@ -137,12 +153,16 @@ def load_memory() -> List[Dict[str, Any]]:
 
 
 def save_memory(data: List[Dict[str, Any]]) -> bool:
-    """Атомарно сохраняет память через временный файл."""
+    """Сохраняет память в SQLite WAL через DatabasePool (с синхронизацией JSON)."""
     try:
-        tmp = MEMORY_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, MEMORY_FILE)
+        _store.save_all_memories(data)
+        try:
+            tmp = MEMORY_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, MEMORY_FILE)
+        except Exception:
+            pass
         return True
     except Exception as e:
         print(f"[-] Ошибка сохранения памяти: {e}", file=sys.stderr)
@@ -150,6 +170,13 @@ def save_memory(data: List[Dict[str, Any]]) -> bool:
 
 
 def load_cache() -> Dict[str, Any]:
+    """Загружает кэш эмбеддингов из SQLite WAL."""
+    try:
+        cache = _store.load_embedding_cache()
+        if cache:
+            return cache
+    except Exception:
+        pass
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
@@ -160,11 +187,16 @@ def load_cache() -> Dict[str, Any]:
 
 
 def save_cache(cache: Dict[str, Any]) -> None:
+    """Сохраняет кэш эмбеддингов в SQLite WAL."""
     try:
-        tmp = CACHE_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False)
-        os.replace(tmp, CACHE_FILE)
+        _store.save_embedding_cache_batch(cache)
+        try:
+            tmp = CACHE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False)
+            os.replace(tmp, CACHE_FILE)
+        except Exception:
+            pass
     except Exception:
         pass
 

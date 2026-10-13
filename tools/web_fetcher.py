@@ -41,10 +41,22 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 SAVED_LINKS_FILE = os.path.join(PROJECT_ROOT, "saved_links.json")
 
+try:
+    from services import EpistemicMemoryStore
+    _store = EpistemicMemoryStore()
+except Exception:
+    _store = None
+
 def save_link_entry(url, title, summary):
-    """Автоматически сохраняет ссылку с метаданными в saved_links.json (с защитой от дублей)."""
+    """Автоматически сохраняет ссылку с метаданными в SQLite WAL и saved_links.json (с защитой от дублей)."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     clean_summary = summary.strip()[:500] if summary else ""
+
+    if _store:
+        try:
+            _store.save_saved_link(url, title, clean_summary, now_str)
+        except Exception:
+            pass
 
     data = []
     if os.path.exists(SAVED_LINKS_FILE):

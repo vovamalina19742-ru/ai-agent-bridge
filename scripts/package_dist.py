@@ -37,6 +37,9 @@ EXCLUDE_FILES = {
     "links_embeddings.json",
     "bridge_queue.db",
     "books_index.db",
+    "memory.db",
+    "memory.db-wal",
+    "memory.db-shm",
     "bridge_mcp.log",
     "bridge_worker.log",
 }
