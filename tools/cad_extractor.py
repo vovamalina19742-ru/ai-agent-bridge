@@ -46,7 +46,7 @@ def extract_blueprint_data(file_path):
             text = page.get_text()
             if text:
                 print(f"--- Лист {page_idx + 1} ---")
-                lines = [l.strip() for l in text.splitlines() if l.strip()]
+                lines = [item.strip() for item in text.splitlines() if item.strip()]
                 print("\n".join(lines))
         doc.close()
     except Exception as e:
