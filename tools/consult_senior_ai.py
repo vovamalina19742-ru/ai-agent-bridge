@@ -35,7 +35,7 @@ def find_gemini_api_key():
     key = os.environ.get("GEMINI_API_KEY")
     if key:
         return key
-    
+
     # Ищем в возможных расположениях .env
     env_paths = [
         os.path.join(PARENT_ROOT, "scripts", ".env"),
@@ -52,7 +52,7 @@ def find_gemini_api_key():
 
 def consult_senior(query):
     api_key = find_gemini_api_key()
-    
+
     # Записываем запрос в общий лог моста задач (Bridge Journal)
     bridge_log = os.path.join(PROJECT_ROOT, "bridge_tasks.json")
     try:

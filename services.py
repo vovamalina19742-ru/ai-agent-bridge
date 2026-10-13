@@ -98,7 +98,7 @@ class ToolExecutionResult:
         """
         if self.success:
             return self.output.strip() if self.output else "[Инструмент успешно завершился без текстового вывода]"
-        
+
         # Структурированное сообщение об ошибке (Graceful Degradation)
         err_payload = {
             "status": "error",
@@ -182,16 +182,16 @@ SEMANTIC_TOOL_ALIASES = {
     # Книги и RAG
     "ask_books": "search_technical_books_library_rag",
     "search_books": "find_raw_books_fts_index",
-    
+
     # Веб и Сеть
     "web_fetcher": "fetch_external_webpage_content",
     "network_scanner": "scan_local_network_hosts_and_ips",
     "port_checker": "check_network_port_open",
-    
+
     # Память и сохраненные ссылки
     "memory_manager": "save_or_recall_permanent_memory",
     "search_saved_links": "search_previously_studied_links_and_repos",
-    
+
     # Документы, код и сканы
     "doc_reader": "read_and_parse_local_document_file",
     "code_check": "verify_and_lint_code_syntax",
@@ -199,7 +199,7 @@ SEMANTIC_TOOL_ALIASES = {
     "ocr_scans": "recognize_text_from_images_and_scans",
     "cad_extractor": "extract_equipment_from_cad_and_blueprints",
     "pipeline_bom": "generate_blueprint_bom_takeoff_specification",
-    
+
     # Статус, бэкапы, ночные операции и сервер
     "status_report": "check_system_and_services_health",
     "backup_manager": "manage_hot_database_backups",

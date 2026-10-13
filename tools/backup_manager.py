@@ -129,7 +129,7 @@ def create_backup(upload_to_server=True, keep_last=5):
     os.makedirs(snapshot_dir, exist_ok=True)
 
     backed_up = []
-    
+
     # 1. bridge_queue.db
     q_dst = os.path.join(snapshot_dir, "bridge_queue.db")
     if backup_sqlite(QUEUE_DB_PATH, q_dst):

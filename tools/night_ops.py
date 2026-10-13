@@ -73,9 +73,9 @@ def run_night_maintenance(skip_server=False):
     # 4. Итог
     ts_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logs.append(f"[4/4] Ночная смена завершена успешно [{ts_end}].")
-    
+
     full_text = "\n\n".join(logs)
-    
+
     # Сохраняем отчет в локальный лог
     log_dir = os.path.join(BASE_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)

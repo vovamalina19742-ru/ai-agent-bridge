@@ -20,7 +20,7 @@ def save_session(history, model, summary=None, summary_upto=0):
         "summary": summary,
         "summary_upto": summary_upto
     }
-    
+
     tmp_file = SESSION_FILE + ".tmp"
     try:
         with open(tmp_file, "w", encoding="utf-8") as f:
@@ -81,7 +81,7 @@ def summarize_history(dialogue_messages, summarizer_model="qwen2.5:3b", timeout=
                 if len(content) > 600:
                     content = content[:600] + "... [сокращено]"
                 lines.append(f"{role.upper()}: {content}")
-        
+
         text_to_summarize = "\n".join(lines[-20:])
         prompt = (
             "Сделай краткую выжимку ключевых тем, принятых решений и фактов из следующего диалога "
@@ -121,7 +121,7 @@ def restore_conversation(session_data, current_system_prompt, max_history=24):
     trimmed_messages = dialogue_messages[-max_history:] if len(dialogue_messages) > max_history else dialogue_messages
 
     restored = [{"role": "system", "content": current_system_prompt}]
-    
+
     summary = session_data.get("summary")
     if summary:
         restored.append({

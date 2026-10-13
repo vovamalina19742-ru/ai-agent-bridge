@@ -37,7 +37,7 @@ def run_tests():
     math_query = "посчитай (1920 * 1080 * 4) / (1024 * 1024)"
     cat, meta = dispatcher.classify_task(math_query)
     ok, result = dispatcher.safe_eval_math_expression(meta.get("expr", ""))
-    
+
     print(f"  • Запрос: \"{math_query}\"")
     print(f"  • Определённая категория: {cat.value}")
     print(f"  • Вычисление AST (0 токенов, мгновенно): {result:.2f} МБ")

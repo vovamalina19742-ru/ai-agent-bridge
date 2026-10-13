@@ -417,7 +417,7 @@ def dispatch_and_execute(task_text: str, worker_hint: str = "", acceptance: Opti
     chosen_model = meta.get("model", "qwen2.5-coder:7b")
     ollama_tools, tools_map = orchestrator.load_tools_registry()
     system_prompt = orchestrator.load_agents_rules()
-    
+
     prompt_content = task_text
     if acceptance:
         prompt_content += f"\n\nКритерий приемки: {acceptance}"

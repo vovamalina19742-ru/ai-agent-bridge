@@ -374,7 +374,7 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelo
                 if return_envelope:
                     return ExecutionResult.fail(fail_err, is_retryable=(resp.status_code >= 500), iterations=step + 1)
                 return "Не удалось связаться с моделью."
-            
+
             data = resp.json()
             assistant_msg = data.get("message", {})
             messages.append(assistant_msg)

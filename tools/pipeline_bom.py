@@ -309,7 +309,7 @@ def generate_bom_takeoff(file_path: str, reserve_percent: float = 5.0, output_cs
         summary_parts.append(f"{round(total_meters, 2)} пог. м")
     if total_pcs > 0:
         summary_parts.append(f"{total_pcs} шт.")
-    
+
     total_str = ", ".join(summary_parts) if summary_parts else "0"
     lines.append(f"| **ИТОГО** | **Суммарный объем спецификации** | **{total_str}** |")
 

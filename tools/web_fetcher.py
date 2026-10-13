@@ -106,12 +106,12 @@ def fetch_url(url, mode="text", max_chars=1800):
             tag.decompose()
 
         title = soup.title.string.strip() if soup.title and soup.title.string else "Без заголовка"
-        
+
         # Для GitHub и документаций: извлекаем README или основную статью
         content_container = (
-            soup.find(id="readme") or 
-            soup.find("article", class_=lambda c: c and "markdown-body" in c) or 
-            soup.find("main") or 
+            soup.find(id="readme") or
+            soup.find("article", class_=lambda c: c and "markdown-body" in c) or
+            soup.find("main") or
             soup
         )
         text = content_container.get_text(separator=" ", strip=True)
@@ -125,7 +125,7 @@ def fetch_url(url, mode="text", max_chars=1800):
         print(f"\n[+] Сайт: {url} (HTTP {status_code})")
         print(f"📌 Заголовок: {title}")
         print("-" * 50)
-        
+
         if text:
             snippet = text[:max_chars]
             print(snippet)

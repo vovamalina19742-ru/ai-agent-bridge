@@ -88,7 +88,7 @@ def ocr_pdf_page(pdf_path, page_num=1):
         doc = fitz.open(pdf_path)
         if page_num < 1 or page_num > len(doc):
             return f"[-] Неверный номер страницы {page_num} (всего: {len(doc)})"
-        
+
         page = doc[page_num - 1]
         # Проверяем, есть ли уже встроенный текстовый слой
         embedded = page.get_text().strip()
@@ -109,7 +109,7 @@ def ocr_file(file_path, page_num=1, save_to_fts=False):
         return f"[-] Файл не найден: {file_path}"
 
     ext = os.path.splitext(file_path)[1].lower()
-    
+
     if ext == ".pdf":
         text = ocr_pdf_page(file_path, page_num=page_num)
     elif ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"]:

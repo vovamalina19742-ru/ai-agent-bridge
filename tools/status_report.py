@@ -97,7 +97,7 @@ def get_db_size(path):
 def get_server_quick_status():
     if not check_port(REMOTE_HOST, 22, timeout=1.0):
         return "ВЫКЛЮЧЕН / СПИТ (S3)"
-    
+
     searx_ok = check_port(REMOTE_HOST, 8080, timeout=1.0)
     searx_str = "SearXNG: ОК (:8080)" if searx_ok else "SearXNG: нет ответа"
     return f"ОНЛАЙН (SSH :22 активен, {searx_str})"
@@ -106,28 +106,28 @@ def get_server_quick_status():
 def generate_report():
     lines = []
     lines.append(f"=== СИСТЕМНЫЙ СТАТУС AI_AGENT [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ===")
-    
+
     # 1. Локальная Ollama
     lines.append(f"• Ollama (хост): {get_ollama_status()}")
-    
+
     # 2. Очередь задач
     lines.append(f"• Очередь задач (bridge_queue.db): {get_queue_stats()}")
-    
+
     # 3. Базы данных
     lines.append("• Локальные базы данных:")
     lines.append(f"   - Индекс книг (books_index.db): {get_db_size(DATABASE_PATH)}")
     lines.append(f"   - Очередь (bridge_queue.db): {get_db_size(QUEUE_DB_PATH)}")
     memory_db = os.path.join(BASE_DIR, "memory.db")
     lines.append(f"   - Память связок (memory.db): {get_db_size(memory_db)}")
-    
+
     # 4. agentmemory
     am_api = check_port("localhost", 3111, timeout=0.8)
     am_view = check_port("localhost", 3113, timeout=0.8)
     lines.append(f"• agentmemory: REST(:3111)={'ОК' if am_api else 'НЕТ'}, Viewer(:3113)={'ОК' if am_view else 'НЕТ'}")
-    
+
     # 5. Удаленный Linux-сервер
     lines.append(f"• Linux-сервер ({REMOTE_HOST}): {get_server_quick_status()}")
-    
+
     return "\n".join(lines)
 
 

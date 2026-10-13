@@ -328,7 +328,7 @@ async def chat_endpoint(req: ChatRequest):
     messages.append({"role": "user", "content": user_prompt})
 
     logs: List[Dict[str, str]] = []
-    
+
     # Запускаем шаг оркестратора в отдельном потоке, чтобы не блокировать event loop FastAPI
     loop = asyncio.get_event_loop()
     reply = await loop.run_in_executor(None, chat_step, messages, ollama_tools, tools_map)
