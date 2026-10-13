@@ -83,32 +83,38 @@ Add the server configuration to your MCP config (`mcp_config.json`):
     }
   }
 }
+### 5. Launch Web-UI Dashboard (Optional)
+Run the self-contained FastAPI dashboard with real-time ReAct trace inspection:
+```bash
+python web_ui.py
+# Open in browser: http://127.0.0.1:3080
 ```
 
 ---
 
 ## 🛠 Included Tools / Инструменты в комплекте
 
-| Tool | Description |
-|---|---|
-| `task_assign` | Put an asynchronous task into the transactional queue |
-| `task_status` | Inspect task state (`queued`, `assigned`, `done`, `failed`) |
-| `task_result` | Retrieve summarized task output without context bloat |
-| `book_search` | Blazing-fast full-text search across PDF library via SQLite FTS5 |
-| `web_fetch` | Web scraper and content extractor with auto-saving metadata |
-| `network_scan` | Local subnet scanner with MAC resolution |
-| `memory` | Persistent key-value fact store with hybrid semantic recall |
-| `server_status` | Check ping, SSH availability and disk space on remote node |
-| `server_wake` | Send Wake-on-LAN (WOL) magic packet to remote host |
-| `server_sleep` | Send remote host to energy-efficient S3 Suspend (<1W) |
-| `server_exec` | Execute guarded bash commands on remote Linux node |
-| `status_report` | Unified one-call ecosystem health check (Ollama, DBs, SearXNG, node) |
-| `ask_books` | RAG over 424+ books using FTS5 + local Ollama with page citations |
-| `backup_manager` | Hot SQLite backup API with rotation & remote Linux node sync |
-| `doc_reader` | Universal document extractor for DOCX, XLSX, PPTX, CSV, TXT, HTML |
-| `code_check` | Syntax verification, ruff linting, pytest & cargo check |
-| `ocr_scans` | High-accuracy OCR for scanned PDFs, blueprints & images (RapidOCR) |
-| `night_ops` | Scheduled maintenance chain (health check -> backup -> code check -> report) |
+| Tool | Semantic Action Name | Description |
+|---|---|---|
+| `task_assign` | - | Put an asynchronous task into the transactional queue |
+| `task_status` | - | Inspect task state (`queued`, `assigned`, `done`, `failed`) |
+| `task_result` | - | Retrieve summarized task output without context bloat |
+| `book_search` | `find_raw_books_fts_index` | Blazing-fast full-text search across PDF library via SQLite FTS5 |
+| `web_fetch` | `fetch_external_webpage_content` | Web scraper and content extractor with auto-saving metadata |
+| `network_scan` | `scan_local_network_hosts_and_ips` | Local subnet scanner with MAC resolution |
+| `memory` | `save_or_recall_permanent_memory` | Persistent key-value fact store with hybrid semantic recall |
+| `server_status` | `check_system_and_services_health` | Check ping, SSH availability and disk space on remote node |
+| `server_wake` | - | Send Wake-on-LAN (WOL) magic packet to remote host |
+| `server_sleep` | - | Send remote host to energy-efficient S3 Suspend (<1W) |
+| `server_exec` | `execute_commands_on_linux_server` | Execute guarded bash commands on remote Linux node |
+| `status_report` | `check_system_and_services_health` | Unified one-call ecosystem health check (Ollama, DBs, SearXNG, node) |
+| `ask_books` | `search_technical_books_library_rag` | RAG over 424+ books using FTS5 + local Ollama with page citations |
+| `backup_manager` | `manage_hot_database_backups` | Hot SQLite backup API with rotation & remote Linux node sync |
+| `doc_reader` | `read_and_parse_local_document_file` | Universal document extractor for DOCX, XLSX, PPTX, CSV, TXT, HTML |
+| `code_check` | `verify_and_lint_code_syntax` | Syntax verification, ruff linting, pytest & cargo check |
+| `ocr_scans` | `recognize_text_from_images_and_scans` | High-accuracy OCR for scanned PDFs, blueprints & images (RapidOCR) |
+| `cad_extractor` | `extract_equipment_from_cad_and_blueprints` | Equipment and bill of materials take-off from CAD drawings |
+| `night_ops` | `run_nightly_maintenance_chain` | Scheduled maintenance chain (health check -> backup -> code check -> report) |
 
 ---
 
