@@ -153,6 +153,7 @@ SEMANTIC_TOOL_ALIASES = {
     "auto_refactor": "self_healing_code_refactor_and_fix",
     "ocr_scans": "recognize_text_from_images_and_scans",
     "cad_extractor": "extract_equipment_from_cad_and_blueprints",
+    "pipeline_bom": "generate_blueprint_bom_takeoff_specification",
     
     # Статус, бэкапы, ночные операции и сервер
     "status_report": "check_system_and_services_health",

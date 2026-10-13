@@ -32,6 +32,8 @@
 | **`backup_manager.py`** | `manage_hot_database_backups` | Горячий бэкап SQLite БД, ротация и синхронизация на Linux-сервер |
 | **`doc_reader.py`** | `read_and_parse_local_document_file` | Универсальный экстрактор текста DOCX, XLSX, PPTX, CSV, TXT, HTML |
 | **`code_check.py`** | `verify_and_lint_code_syntax` | Верификатор кода (Python AST, ruff, pytest, cargo check) |
+| **`auto_refactor.py`** | `self_healing_code_refactor_and_fix` | Цикл самоисправления кода: находит баги, лечит через qwen2.5-coder, дает diff |
+| **`pipeline_bom.py`** | `generate_blueprint_bom_takeoff_specification` | Конвейер Blueprint-to-BOM: извлечение оборудования, привязка к каталогам, экспорт CSV |
 | **`ocr_scans.py`** | `recognize_text_from_images_and_scans` | Локальный OCR чертежей и сканов на русском и английском (RapidOCR) |
 | **`cad_extractor.py`** | `extract_equipment_from_cad_and_blueprints` | Парсинг и подсчет оборудования по чертежам и схемам |
 | **`network_scanner.py`** | `scan_local_network_hosts_and_ips` | Многопоточный ping-sweep подсети `192.168.1.x` с извлечением MAC |

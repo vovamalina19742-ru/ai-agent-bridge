@@ -112,6 +112,8 @@ python web_ui.py
 | `backup_manager` | `manage_hot_database_backups` | Hot SQLite backup API with rotation & remote Linux node sync |
 | `doc_reader` | `read_and_parse_local_document_file` | Universal document extractor for DOCX, XLSX, PPTX, CSV, TXT, HTML |
 | `code_check` | `verify_and_lint_code_syntax` | Syntax verification, ruff linting, pytest & cargo check |
+| `auto_refactor` | `self_healing_code_refactor_and_fix` | Autonomous Self-Healing Code Loop (AST verify, LLM patch, unified diff) |
+| `pipeline_bom` | `generate_blueprint_bom_takeoff_specification` | Minimal CAD Takeoff: extracts lighting equipment, catalog mapping, CSV export |
 | `ocr_scans` | `recognize_text_from_images_and_scans` | High-accuracy OCR for scanned PDFs, blueprints & images (RapidOCR) |
 | `cad_extractor` | `extract_equipment_from_cad_and_blueprints` | Equipment and bill of materials take-off from CAD drawings |
 | `night_ops` | `run_nightly_maintenance_chain` | Scheduled maintenance chain (health check -> backup -> code check -> report) |

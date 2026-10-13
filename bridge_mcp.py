@@ -312,6 +312,18 @@ def tool_auto_refactor(args):
     return _text_result(run_tool_script("auto_refactor.py", cli, timeout=180))
 
 
+def tool_pipeline_bom(args):
+    file_path = (args.get("file_path") or "").strip()
+    if not file_path:
+        return _text_result("[!] Обязателен параметр file_path", is_error=True)
+    cli = [file_path]
+    if args.get("reserve_percent"):
+        cli.extend(["--reserve", str(args["reserve_percent"])])
+    if args.get("output_csv"):
+        cli.extend(["--csv", str(args["output_csv"])])
+    return _text_result(run_tool_script("pipeline_bom.py", cli, timeout=60))
+
+
 def tool_ocr_scans(args):
     file_path = (args.get("file_path") or "").strip()
     if not file_path:
@@ -519,6 +531,19 @@ TOOLS = {
                 "max_attempts": {"type": "integer", "description": "Лимит попыток (по умолчанию 3)"},
             },
             ["target_file"],
+        ),
+    ),
+    "pipeline_bom": (
+        tool_pipeline_bom,
+        tool_def(
+            "pipeline_bom",
+            "Автоматический конвейер Blueprint-to-BOM (Minimal CAD Takeoff): парсит чертежи PDF или спецификации, сопоставляет оборудование с каталогами (TOPMET, KRAAB, Neko) и формирует минималистичную спецификацию (№, Наименование, Кол-во).",
+            {
+                "file_path": {"type": "string", "description": "Путь к файлу чертежа (PDF) или спецификации"},
+                "reserve_percent": {"type": "number", "description": "Технологический запас на раскрой лент и профилей в % (по умолчанию 5%)"},
+                "output_csv": {"type": "string", "description": "Путь для сохранения CSV (опционально)"},
+            },
+            ["file_path"],
         ),
     ),
     "ocr_scans": (
