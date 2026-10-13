@@ -8,7 +8,6 @@ package_dist.py — Автоматическая сборка чистого д�
 import os
 import sys
 import zipfile
-from datetime import datetime
 
 if sys.platform == "win32":
     try:

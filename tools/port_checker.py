@@ -1,6 +1,5 @@
 import socket
 import argparse
-import sys
 
 TOOL_SPEC = {
     "name": "check_port",

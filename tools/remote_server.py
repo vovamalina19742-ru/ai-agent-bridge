@@ -14,7 +14,7 @@ import sys
 import socket
 import subprocess
 import argparse
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 if sys.platform == "win32":
     try:
@@ -115,16 +115,20 @@ TOOL_SPEC = {
 
 def send_wol() -> Dict[str, Any]:
     """Отправка Wake-on-LAN Magic Packet."""
+    # Вычисляем broadcast адрес подсети динамически от SERVER_IP
+    ip_parts = SERVER_IP.split(".")
+    subnet_broadcast = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255" if len(ip_parts) == 4 else "255.255.255.255"
+
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         for mac in MAC_ADDRESSES:
             packet = b'\xff' * 6 + bytes.fromhex(mac) * 16
-            for target_ip in ["192.168.1.255", "255.255.255.255", SERVER_IP]:
+            for target_ip in [subnet_broadcast, "255.255.255.255", SERVER_IP]:
                 try:
                     sock.sendto(packet, (target_ip, 9))
                 except Exception:
                     pass
-    msg = f"[WOL] Пакет пробуждения (Magic Packet) отправлен на {SERVER_IP}. Сервер включается."
+    msg = f"[WOL] Пакет пробуждения (Magic Packet) отправлен на {SERVER_IP} ({subnet_broadcast}). Сервер включается."
     print(msg)
     return {"success": True, "message": msg}
 
@@ -155,10 +159,17 @@ def sleep_server() -> Dict[str, Any]:
 
 def check_status() -> Dict[str, Any]:
     """Быстрая проверка доступности и базовых метрик сервера."""
-    # 1. Пинг
-    ping_cmd = ["ping", "-n", "1", "-w", "1000", SERVER_IP]
-    ping_res = subprocess.run(ping_cmd, capture_output=True, text=True)
-    is_alive = (ping_res.returncode == 0)
+    # 1. Кроссплатформенный пинг с таймаутом
+    if sys.platform == "win32":
+        ping_cmd = ["ping", "-n", "1", "-w", "1000", SERVER_IP]
+    else:
+        ping_cmd = ["ping", "-c", "1", "-W", "1", SERVER_IP]
+
+    try:
+        ping_res = subprocess.run(ping_cmd, capture_output=True, text=True, timeout=3)
+        is_alive = (ping_res.returncode == 0)
+    except Exception:
+        is_alive = False
 
     if not is_alive:
         msg = f"[-] Сервер {SERVER_IP} выключен или спит (Пинг: нет ответа). Используйте action='wake' для включения."
@@ -256,6 +267,7 @@ def main():
     parser = argparse.ArgumentParser(description="Безопасное управление удаленным сервером (Allowlist)")
     parser.add_argument("action", nargs="?", default="status", help="Действие: wake, sleep, status, exec или имя операции")
     parser.add_argument("target_or_op", nargs="?", default="", help="Имя операции (при action=exec) или имя службы")
+    parser.add_argument("pos_target", nargs="?", default="", help="Имя службы (второй позиционный аргумент для exec)")
     parser.add_argument("--target", "-t", default="", help="Имя службы (target)")
     args = parser.parse_args()
 
@@ -264,17 +276,22 @@ def main():
     if act == "wake":
         send_wol()
     elif act == "sleep":
-        sleep_server()
+        res = sleep_server()
+        if not res.get("success"):
+            sys.exit(1)
     elif act == "status":
-        check_status()
+        res = check_status()
+        if not res.get("success"):
+            sys.exit(1)
     elif act == "exec":
         op = args.target_or_op
-        target = args.target
+        target = args.pos_target or args.target
         res = execute_remote_allowed_action(op, target)
         if res["success"]:
             print(res["stdout"])
         else:
             print(f"[-] Ошибка: {res['error']}")
+            sys.exit(1)
     elif act in ALLOWED_OPERATIONS:
         # Прямой вызов: python remote_server.py docker_ps
         target = args.target_or_op or args.target
@@ -283,8 +300,10 @@ def main():
             print(res["stdout"])
         else:
             print(f"[-] Ошибка: {res['error']}")
+            sys.exit(1)
     else:
         print(f"[-] Неизвестное действие '{act}'. Допустимо: wake, sleep, status, exec, или одна из разрешенных операций: {list(ALLOWED_OPERATIONS.keys())}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

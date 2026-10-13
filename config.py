@@ -5,7 +5,6 @@ config.py — Единый источник конфигурации для вс
 """
 
 import os
-import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(BASE_DIR, ".env")

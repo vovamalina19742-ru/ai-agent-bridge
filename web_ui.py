@@ -10,13 +10,12 @@ web_ui.py — Легковесный локальный Web-UI на FastAPI (п�
 
 import os
 import sys
-import json
 import asyncio
 import uuid
 import time
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # Гарантируем корректный UTF-8
@@ -30,9 +29,8 @@ if sys.platform == "win32":
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
-from orchestrator import load_agents_rules, load_tools_registry, chat_step, trim_history, MODEL_NAME
-from services import primary_provider, fallback_provider, db_pool
-import session_store
+from orchestrator import load_agents_rules, load_tools_registry, chat_step
+from services import primary_provider, fallback_provider
 
 app = FastAPI(title="AI-Agent Bridge Dashboard", version="1.0.0")
 
@@ -55,7 +53,7 @@ class SessionManager:
             self.sessions[new_id] = {
                 "created_at": time.time(),
                 "last_active": time.time(),
-                "messages": [{"role": "system", "content": system_prompt}]
+                "messages": [{"role": "system", "content": load_agents_rules()}]
             }
             return new_id, self.sessions[new_id]["messages"]
         self.sessions[session_id]["last_active"] = time.time()
@@ -63,7 +61,7 @@ class SessionManager:
 
     def clear(self, session_id: Optional[str] = None) -> None:
         if session_id and session_id in self.sessions:
-            self.sessions[session_id]["messages"] = [{"role": "system", "content": system_prompt}]
+            self.sessions[session_id]["messages"] = [{"role": "system", "content": load_agents_rules()}]
             self.sessions[session_id]["last_active"] = time.time()
 
     def _cleanup(self) -> None:
@@ -306,8 +304,9 @@ async def get_dashboard():
 
 @app.get("/api/status")
 async def get_status():
-    local_ok = primary_provider.is_available()
-    remote_ok = fallback_provider.is_available()
+    loop = asyncio.get_event_loop()
+    local_ok = await loop.run_in_executor(None, primary_provider.is_available)
+    remote_ok = await loop.run_in_executor(None, fallback_provider.is_available)
     return {
         "ollama_local": local_ok,
         "linux_node": remote_ok,
@@ -325,6 +324,7 @@ async def chat_endpoint(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Сообщение превышает лимит 8000 символов.")
 
     session_id, messages = session_mgr.get_or_create(req.session_id)
+    prev_len = len(messages)
     messages.append({"role": "user", "content": user_prompt})
 
     logs: List[Dict[str, str]] = []
@@ -333,8 +333,8 @@ async def chat_endpoint(req: ChatRequest):
     loop = asyncio.get_event_loop()
     reply = await loop.run_in_executor(None, chat_step, messages, ollama_tools, tools_map)
 
-    # Проверяем последние сообщения для сбора логов
-    for m in messages[-4:]:
+    # Проверяем только новые сообщения для сбора логов вызова инструментов
+    for m in messages[prev_len:]:
         if m.get("role") == "tool":
             tool_name = m.get("name", "tool")
             content_preview = str(m.get("content", ""))[:200]

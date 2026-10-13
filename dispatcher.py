@@ -22,7 +22,7 @@ import ast
 import math
 import operator
 from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 # UTF-8 кодировка для Windows консоли
@@ -112,6 +112,9 @@ def safe_eval_math_expression(expr_str: str) -> Tuple[bool, Any]:
                     raise ValueError(f"Оператор {op_type.__name__} не поддерживается")
                 left = _eval_node(node.left)
                 right = _eval_node(node.right)
+                if op_type is ast.Pow:
+                    if abs(right) > 1000:
+                        raise ValueError("Слишком большая степень (максимум 1000)")
                 return ALLOWED_OPERATORS[op_type](left, right)
             elif isinstance(node, ast.UnaryOp):
                 op_type = type(node.op)
@@ -163,7 +166,7 @@ BOOK_SEARCH_PATTERNS = [
 BOM_PATTERNS = [
     r"(?:посчитай|сделай|сформируй|составь|извлеки)\s+(?:спецификаци[а-я]*|смет[а-я]*|bom)\b.*",
     r"pipeline_bom:\s*(.+)",
-    r"\.(?:dxf|dwg)\b",
+    r"\.(?:dxf|dwg|pdf|docx|xlsx|txt|csv)\b",
 ]
 
 MULTI_STEP_MARKERS = [
@@ -331,25 +334,26 @@ def execute_direct_bom(input_text: str) -> ExecutionResult:
     """Выполняет прямой запуск конвейера спецификаций Minimal CAD Takeoff."""
     try:
         from tools.pipeline_bom import run_bom_pipeline
-        # Ищем путь к файлу в тексте задачи
-        dxf_match = re.search(r"([a-zA-Z]:[\\/][^ \r\n\t]+\.(?:dxf|dwg))|([^ \r\n\t]+\.(?:dxf|dwg))", input_text)
-        if dxf_match:
-            dxf_path = dxf_match.group(0)
-            report = run_bom_pipeline(dxf_path)
+        # Ищем путь к файлу в тексте задачи (.dxf, .dwg, .pdf, .docx, .xlsx, .txt, .csv)
+        doc_match = re.search(r"([a-zA-Z]:[\\/][^ \r\n\t]+\.(?:dxf|dwg|pdf|docx|xlsx|txt|csv))|([^ \r\n\t]+\.(?:dxf|dwg|pdf|docx|xlsx|txt|csv))", input_text, re.IGNORECASE)
+        if doc_match:
+            doc_path = doc_match.group(0)
+            report = run_bom_pipeline(doc_path)
             return ExecutionResult.ok(f"### 📐 Спецификация оборудования (Minimal CAD Takeoff):\n\n{report}", iterations=1)
         else:
             report = run_bom_pipeline(input_text)
-            if "СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ" in report or "№" in report:
+            if "СПЕЦИФИКАЦИЯ ОБОРУДОВАНИЯ" in report or "№" in report or "спецификация" in report.lower():
                 return ExecutionResult.ok(f"### 📐 Спецификация оборудования (Minimal CAD Takeoff):\n\n{report}", iterations=1)
             return ExecutionResult.fail("Не указан чертеж или специфицируемые позиции", is_retryable=False)
     except Exception as e:
         return ExecutionResult.fail(f"Ошибка BOM пайплайна: {e}", is_retryable=False)
 
 
-def dispatch_and_execute(task_text: str, worker_hint: str = "") -> ExecutionResult:
+def dispatch_and_execute(task_text: str, worker_hint: str = "", acceptance: Optional[str] = None) -> ExecutionResult:
     """
     Главная точка входа: оценивает задачу, применяет детерминированные инструменты
     или специализированные SLM и возвращает гарантированный ExecutionResult.
+    acceptance передается отдельно, чтобы не ломать детерминированный калькулятор и FTS5-поиск.
     """
     category, meta = classify_task(task_text, hint=worker_hint)
 
@@ -390,7 +394,7 @@ def dispatch_and_execute(task_text: str, worker_hint: str = "") -> ExecutionResu
                     TaskCategory.DIRECT_BOM_PIPELINE
                 ):
                     # Добавляем краткую выжимку предыдущих результатов только для генеративных шагов
-                    step_task_text += f"\n[Контекст предыдущих шагов]:\n" + "\n".join(context_accumulator[-2:])
+                    step_task_text += "\n[Контекст предыдущих шагов]:\n" + "\n".join(context_accumulator[-2:])
 
                 step_res = dispatch_and_execute(step_task_text, worker_hint=worker_hint)
                 if not step_res.success:
@@ -411,12 +415,16 @@ def dispatch_and_execute(task_text: str, worker_hint: str = "") -> ExecutionResu
 
     # 5. ВЫЗОВ СПЕЦИАЛИЗИРОВАННОЙ МОДЕЛИ ЧЕРЕЗ ORCHESTRATOR
     chosen_model = meta.get("model", "qwen2.5-coder:7b")
-    orchestrator.MODEL_NAME = chosen_model
     ollama_tools, tools_map = orchestrator.load_tools_registry()
     system_prompt = orchestrator.load_agents_rules()
+    
+    prompt_content = task_text
+    if acceptance:
+        prompt_content += f"\n\nКритерий приемки: {acceptance}"
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": task_text}
+        {"role": "user", "content": prompt_content}
     ]
-    return orchestrator.execute_task(messages, ollama_tools, tools_map)
+    return orchestrator.execute_task(messages, ollama_tools, tools_map, model_name=chosen_model)
 

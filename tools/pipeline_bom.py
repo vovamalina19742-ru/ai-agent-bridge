@@ -12,9 +12,8 @@ import os
 import sys
 import re
 import csv
-import json
 import argparse
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 if sys.platform == "win32":
     try:
@@ -28,26 +27,32 @@ sys.path.append(BASE_DIR)
 
 # Каталог известных брендов и компонентов (KRAAB, Topmet, Neko, Smart Light, Mean Well)
 CATALOG_DB = {
-    # Светодиодные ленты
-    "led_cob_24v": {
-        "pattern": r"(лента|led|cob|smd|полоса|подсветк).*(24v|24в|10w|12w|15w|cob|3000k|4000k)?",
-        "name": "Светодиодная лента COB 24V 10W/m CRI>90 3000K",
-        "unit": "м"
-    },
+    # Специфичные светодиодные ленты
     "led_rgbw_24v": {
         "pattern": r"(rgb|rgbw|цветн).*лент",
         "name": "Светодиодная лента RGBW 24V 18W/m",
         "unit": "м"
     },
-    # Профили
-    "profile_topmet": {
-        "pattern": r"(профиль|короб|врезн|накладн).*(topmet|linea|slim|декор|алюм)",
-        "name": "Алюминиевый профиль Topmet с матовым рассеивателем (L=2.0м)",
-        "unit": "м"
+    # Блоки питания (сначала 200W, затем 100W без необязательного ?)
+    "power_supply_200w": {
+        "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well).*(150w|200w|240w|350w)",
+        "name": "Блок питания Mean Well LRS-200-24 (200W 24V IP20)",
+        "unit": "шт."
     },
+    "power_supply_100w": {
+        "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well|источник).*(100w|100вт|120w|120вт)",
+        "name": "Блок питания Mean Well LRS-100-24 (100W 24V IP20)",
+        "unit": "шт."
+    },
+    # Профили
     "profile_shadow_kraab": {
         "pattern": r"(теневой|шов|kraab|gipps|плинтус|карниз)",
         "name": "Профиль теневого шва KRAAB GIPPS (ГКЛ 12.5мм)",
+        "unit": "м"
+    },
+    "profile_topmet": {
+        "pattern": r"(профиль|короб|врезн|накладн).*(topmet|linea|slim|декор|алюм)",
+        "name": "Алюминиевый профиль Topmet с матовым рассеивателем (L=2.0м)",
         "unit": "м"
     },
     # Трековые системы
@@ -56,22 +61,17 @@ CATALOG_DB = {
         "name": "Магнитный трековый профиль Neko Moduline 26 48V (L=2.0м)",
         "unit": "м"
     },
-    # Блоки питания
-    "power_supply_100w": {
-        "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well|источник).*(100w|100вт|120w|120вт)?",
-        "name": "Блок питания Mean Well LRS-100-24 (100W 24V IP20)",
-        "unit": "шт."
-    },
-    "power_supply_200w": {
-        "pattern": r"(блок\s*питан|драйвер|трансформатор|mean\s*well).*(150w|200w|240w|350w)",
-        "name": "Блок питания Mean Well LRS-200-24 (200W 24V IP20)",
-        "unit": "шт."
-    },
     # Светильники
     "downlight": {
         "pattern": r"(светильник|точечн|downlight|спот|встраиваем)",
         "name": "Встраиваемый точечный светильник Deep Anti-Glare 10W",
         "unit": "шт."
+    },
+    # Общая светодиодная лента (в самом конце как fallback)
+    "led_cob_24v": {
+        "pattern": r"(лента|полоса|подсветк|cob|smd)",
+        "name": "Светодиодная лента COB 24V 10W/m CRI>90 3000K",
+        "unit": "м"
     }
 }
 
@@ -143,6 +143,29 @@ def extract_raw_text(file_path: str) -> str:
         except Exception:
             pass
 
+    elif ext in [".dxf", ".dwg"]:
+        try:
+            from tools.cad_extractor import extract_cad_entities
+            res = extract_cad_entities(clean_path)
+            if res and isinstance(res, dict):
+                texts = res.get("texts", []) or []
+                layers = [f"Слой: {k} (объектов: {v})" for k, v in (res.get("layers", {}) or {}).items()]
+                return "\n".join(texts + layers)
+        except Exception:
+            pass
+        try:
+            import ezdxf
+            doc = ezdxf.readfile(clean_path)
+            msp = doc.modelspace()
+            extracted = []
+            for e in msp:
+                if e.dxftype() in ("TEXT", "MTEXT"):
+                    extracted.append(e.dxf.text if hasattr(e.dxf, "text") else getattr(e, "text", ""))
+            if extracted:
+                return "\n".join(extracted)
+        except Exception:
+            pass
+
     return ""
 
 
@@ -161,29 +184,31 @@ def parse_items_from_text(raw_text: str, reserve_percent: float = 5.0) -> List[D
 
         # Ищем совпадения метража: "15.4 м", "15,4м", "15400 мм", "L=12.5m"
         length_match = re.search(r'(?:L\s*[:=]\s*|длина\s*[:=]\s*)?(\d+[.,]?\d*)\s*(?:м|m|метр|пог\.?\s*м)', line_clean, re.IGNORECASE)
-        mm_match = re.search(r'(\d{3,5})\s*(?:мм|mm)', line_clean, re.IGNORECASE)
         # Ищем совпадения штук: "12 шт", "4 x", "кол-во: 8"
         qty_match = re.search(r'(?:кол-во\s*[:=]\s*|x\s*|×\s*)?(\d+)\s*(?:шт|pcs|штук|точек)', line_clean, re.IGNORECASE)
+        mm_match = re.search(r'(\d{3,5})\s*(?:мм|mm)', line_clean, re.IGNORECASE)
 
         val = 0.0
         unit = "шт."
-        if length_match:
+        # Приоритет 1: Явные штуки (шт, pcs)
+        if qty_match:
+            try:
+                val = float(qty_match.group(1))
+                unit = "шт."
+            except Exception:
+                pass
+        # Приоритет 2: Метраж (м, пог.м, L=...)
+        elif length_match:
             try:
                 val = float(length_match.group(1).replace(",", "."))
                 unit = "м"
             except Exception:
                 pass
+        # Приоритет 3: Миллиметры (переводим мм в метры, только если это не штучное изделие)
         elif mm_match:
             try:
-                # Переводим мм в метры
                 val = float(mm_match.group(1)) / 1000.0
                 unit = "м"
-            except Exception:
-                pass
-        elif qty_match:
-            try:
-                val = float(qty_match.group(1))
-                unit = "шт."
             except Exception:
                 pass
 
@@ -212,14 +237,6 @@ def parse_items_from_text(raw_text: str, reserve_percent: float = 5.0) -> List[D
                 "raw_qty": 0.0
             }
         items_map[cat_name]["raw_qty"] += val
-
-    # Если в тексте не нашлись стандартные выноски, проверим синтетический fallback
-    if not items_map:
-        # Базовый типовой расчет на основе обнаруженных терминов
-        if "лент" in raw_text.lower() or "led" in raw_text.lower():
-            items_map["Светодиодная лента COB 24V 10W/m CRI>90 3000K"] = {"name": "Светодиодная лента COB 24V 10W/m CRI>90 3000K", "unit": "м", "raw_qty": 24.5}
-            items_map["Алюминиевый профиль Topmet с матовым рассеивателем (L=2.0м)"] = {"name": "Алюминиевый профиль Topmet с матовым рассеивателем (L=2.0м)", "unit": "м", "raw_qty": 24.5}
-            items_map["Блок питания Mean Well LRS-200-24 (200W 24V IP20)"] = {"name": "Блок питания Mean Well LRS-200-24 (200W 24V IP20)", "unit": "шт.", "raw_qty": 2.0}
 
     # Применяем технологический запас на раскрой лент и профилей
     result_list = []
@@ -254,11 +271,11 @@ def generate_bom_takeoff(file_path: str, reserve_percent: float = 5.0, output_cs
         title = "Текстовое задание"
 
     if not raw_text:
-        return f"[-] Не удалось извлечь инженерные данные."
+        return "[-] Не удалось извлечь инженерные данные."
 
     items = parse_items_from_text(raw_text, reserve_percent=reserve_percent)
     if not items:
-        return f"[-] Не обнаружено специфицируемых позиций освещения."
+        return "[-] Не обнаружено специфицируемых позиций освещения."
 
     # Формируем таблицу строго по регламенту Minimal CAD Takeoff
     lines = [

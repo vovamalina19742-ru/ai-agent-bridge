@@ -17,7 +17,7 @@ import socket
 import sqlite3
 import threading
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 
 if sys.platform == "win32":
     try:
@@ -85,10 +85,10 @@ def claim_task(worker_id: str = WORKER_ID, lease_seconds: int = LEASE_SECONDS) -
             UPDATE tasks
             SET status='assigned',
                 locked_by=?,
-                locked_until=datetime('now', ?),
-                heartbeat_at=datetime('now'),
+                locked_until=datetime('now', 'localtime', ?),
+                heartbeat_at=datetime('now', 'localtime'),
                 attempts=attempts + 1,
-                updated_at=datetime('now')
+                updated_at=datetime('now', 'localtime')
             WHERE id = (
                 SELECT id FROM tasks
                 WHERE status IN ('queued', 'retry')
@@ -123,7 +123,7 @@ def reclaim_stale_tasks():
                 updated_at=?
             WHERE status IN ('assigned', 'running')
               AND locked_until IS NOT NULL
-              AND locked_until < datetime('now')
+              AND locked_until < datetime('now', 'localtime')
               AND attempts >= max_attempts
         """, (now,))
         n_failed = cur_fail.rowcount
@@ -137,7 +137,7 @@ def reclaim_stale_tasks():
                 updated_at=?
             WHERE status IN ('assigned', 'running')
               AND locked_until IS NOT NULL
-              AND locked_until < datetime('now')
+              AND locked_until < datetime('now', 'localtime')
               AND attempts < max_attempts
         """, (now,))
         n_reclaimed = cur_reclaim.rowcount
@@ -177,9 +177,9 @@ class TaskHeartbeatThread:
                 con = get_db()
                 con.execute("""
                     UPDATE tasks
-                    SET heartbeat_at=datetime('now'),
-                        locked_until=datetime('now', ?),
-                        updated_at=datetime('now')
+                    SET heartbeat_at=datetime('now', 'localtime'),
+                        locked_until=datetime('now', 'localtime', ?),
+                        updated_at=datetime('now', 'localtime')
                     WHERE id=? AND locked_by=? AND status='running'
                 """, (self.lease_offset, self.task_id, self.worker_id))
                 con.commit()
@@ -207,11 +207,8 @@ def process_task(row: sqlite3.Row):
     """
     Исполняет задачу через ReAct-оркестратор со строгим контрактом ExecutionResult.
     """
-    import orchestrator
-
     tid = row["id"]
     model = route_model(row["worker_hint"], row["task"])
-    orchestrator.MODEL_NAME = model
     attempts = row["attempts"]
     max_attempts = row["max_attempts"] or 3
 
@@ -219,7 +216,7 @@ def process_task(row: sqlite3.Row):
 
     # Переводим в статус 'running'
     con = get_db()
-    con.execute("UPDATE tasks SET status='running', updated_at=datetime('now') WHERE id=?", (tid,))
+    con.execute("UPDATE tasks SET status='running', updated_at=datetime('now', 'localtime') WHERE id=?", (tid,))
     con.commit()
     con.close()
 
@@ -228,12 +225,11 @@ def process_task(row: sqlite3.Row):
     heartbeat.start()
 
     user_text = row["task"]
-    if row["acceptance"]:
-        user_text += f"\n\nКритерий приемки: {row['acceptance']}"
+    acceptance = row["acceptance"] or ""
 
     try:
         import dispatcher
-        exec_res = dispatcher.dispatch_and_execute(user_text, worker_hint=row["worker_hint"])
+        exec_res = dispatcher.dispatch_and_execute(user_text, worker_hint=row["worker_hint"], acceptance=acceptance)
     except Exception as e:
         from services import ExecutionResult
         exec_res = ExecutionResult.fail(f"Исключение при выполнении задачи: {type(e).__name__}: {e}", is_retryable=False)
@@ -254,7 +250,7 @@ def process_task(row: sqlite3.Row):
                     error='',
                     locked_by=NULL,
                     locked_until=NULL,
-                    updated_at=datetime('now')
+                    updated_at=datetime('now', 'localtime')
                 WHERE id=?
             """, (summary, tid))
             con.commit()
@@ -269,7 +265,7 @@ def process_task(row: sqlite3.Row):
                         error=?,
                         locked_by=NULL,
                         locked_until=NULL,
-                        updated_at=datetime('now')
+                        updated_at=datetime('now', 'localtime')
                     WHERE id=?
                 """, (f"[RETRYABLE {attempts}/{max_attempts}] {err_msg}", tid))
                 con.commit()
@@ -283,7 +279,7 @@ def process_task(row: sqlite3.Row):
                         result_summary='',
                         locked_by=NULL,
                         locked_until=NULL,
-                        updated_at=datetime('now')
+                        updated_at=datetime('now', 'localtime')
                     WHERE id=?
                 """, (err_msg, tid))
                 con.commit()
@@ -302,8 +298,14 @@ def main():
     # Безопасный возврат зависших задач с истекшим lease
     reclaim_stale_tasks()
 
+    last_reclaim = time.time()
     try:
         while True:
+            # Периодическая проверка и возврат зависших задач каждые 45 секунд
+            if time.time() - last_reclaim > 45:
+                reclaim_stale_tasks()
+                last_reclaim = time.time()
+
             row = claim_task()
             if row is None:
                 if once:

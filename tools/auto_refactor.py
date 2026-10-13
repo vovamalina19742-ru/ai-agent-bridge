@@ -71,6 +71,17 @@ def check_file_errors(file_path):
     if ext == ".py":
         try:
             py_compile.compile(file_path, doraise=True)
+            # Дополнительная быстрая проверка через ruff (если доступен)
+            try:
+                import subprocess
+                proc = subprocess.run(
+                    [sys.executable, "-m", "ruff", "check", "--select", "E,F", file_path],
+                    capture_output=True, text=True, timeout=10
+                )
+                if proc.returncode != 0 and proc.stdout:
+                    return False, f"Ruff ошибки: {proc.stdout[:800]}"
+            except Exception:
+                pass
             return True, "Синтаксис корректен"
         except py_compile.PyCompileError as e:
             # Извлекаем понятную суть ошибки
@@ -79,11 +90,11 @@ def check_file_errors(file_path):
             return False, str(e)
 
     elif ext == ".rs":
-        # Если это Rust файл, пробуем rustc --parse-only или проверку синтаксиса
+        # Если это Rust файл, проверяем синтаксис через rustc --emit=metadata (стабильный флаг)
         try:
             import subprocess
             proc = subprocess.run(
-                ["rustc", "--edition", "2021", "-Z", "parse-only", file_path],
+                ["rustc", "--edition", "2021", "--emit=metadata", "-o", os.devnull, file_path],
                 capture_output=True, text=True, timeout=10
             )
             if proc.returncode != 0:
@@ -181,49 +192,53 @@ def self_healing_refactor(file_path, instruction="", max_attempts=3):
 
     fixed_successfully = False
 
-    for attempt in range(1, max_attempts + 1):
-        report_lines.append(f"\n[Попытка {attempt}/{max_attempts}] Запрос к {DEFAULT_MODEL} на генерацию исправления...")
+    try:
+        for attempt in range(1, max_attempts + 1):
+            report_lines.append(f"\n[Попытка {attempt}/{max_attempts}] Запрос к {DEFAULT_MODEL} на генерацию исправления...")
 
-        try:
-            suggested_code = call_llm_fix(current_code, current_error, instruction)
-            if not suggested_code or len(suggested_code) < 10:
-                report_lines.append(f"[-] Попытка {attempt}: модель вернула пустой или некорректный код.")
-                continue
+            try:
+                suggested_code = call_llm_fix(current_code, current_error, instruction)
+                if not suggested_code or len(suggested_code) < 10:
+                    report_lines.append(f"[-] Попытка {attempt}: модель вернула пустой или некорректный код.")
+                    continue
 
-            # Записываем предложенный код в файл для тестовой проверки
+                # Записываем предложенный код в файл для тестовой проверки
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(suggested_code)
+
+                # Перепроверяем файл
+                test_valid, test_err = check_file_errors(file_path)
+                if test_valid:
+                    fixed_successfully = True
+                    current_code = suggested_code
+                    report_lines.append(f"[✓] Успех на попытке {attempt}! Код прошел синтаксическую валидацию.")
+                    # Сохраняем извлеченный урок в память только если исходный файл действительно содержал ошибку
+                    if not is_valid:
+                        try:
+                            from tools import memory_manager
+                            memory_manager.action_save_lesson(
+                                topic=f"AutoRefactor: {os.path.basename(file_path)}",
+                                mistake=str(current_error)[:200],
+                                fix=f"Успешно исправлено моделью {DEFAULT_MODEL} на попытке {attempt}"
+                            )
+                            report_lines.append("[✓] Урок самоисцеления сохранен в долговременную память.")
+                        except Exception:
+                            pass
+                    break
+                else:
+                    report_lines.append(f"[!] Попытка {attempt} не устранила ошибку: {test_err}")
+                    current_error = test_err
+                    current_code = suggested_code
+
+            except Exception as e:
+                report_lines.append(f"[-] Ошибка обращения к модели: {e}")
+    finally:
+        # Финал: если не удалось починить, откатываемся к оригиналу (Safety Guardrail)
+        if not fixed_successfully:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(suggested_code)
+                f.write(original_content)
 
-            # Перепроверяем файл
-            test_valid, test_err = check_file_errors(file_path)
-            if test_valid:
-                fixed_successfully = True
-                current_code = suggested_code
-                report_lines.append(f"[✓] Успех на попытке {attempt}! Код прошел синтаксическую валидацию.")
-                # Сохраняем извлеченный урок в долговременную память (Epistemic Hygiene)
-                try:
-                    from tools import memory_manager
-                    memory_manager.action_save_lesson(
-                        topic=f"AutoRefactor: {os.path.basename(file_path)}",
-                        mistake=str(current_error)[:200],
-                        fix=f"Успешно исправлено моделью {DEFAULT_MODEL} на попытке {attempt}"
-                    )
-                    report_lines.append("[✓] Урок самоисцеления сохранен в долговременную память.")
-                except Exception:
-                    pass
-                break
-            else:
-                report_lines.append(f"[!] Попытка {attempt} не устранила ошибку: {test_err}")
-                current_error = test_err
-                current_code = suggested_code
-
-        except Exception as e:
-            report_lines.append(f"[-] Ошибка обращения к модели: {e}")
-
-    # Финал: если не удалось починить, откатываемся к оригиналу (Safety Guardrail)
     if not fixed_successfully:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(original_content)
         report_lines.append("\n[!] Не удалось автоматически исправить ошибку. Файл безопасно откачен к исходному состоянию.")
         return "\n".join(report_lines)
 

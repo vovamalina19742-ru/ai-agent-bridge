@@ -23,7 +23,6 @@ import os
 import json
 import sqlite3
 import subprocess
-import time
 from datetime import datetime
 
 if sys.platform == "win32":
@@ -71,40 +70,45 @@ def truncate(text, limit=MAX_TOOL_OUTPUT_CHARS):
 
 
 def ensure_db():
-    con = sqlite3.connect(QUEUE_DB)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS tasks(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT, updated_at TEXT,
-            task TEXT NOT NULL,
-            worker_hint TEXT DEFAULT '',
-            acceptance TEXT DEFAULT '',
-            status TEXT DEFAULT 'queued',
-            result_summary TEXT DEFAULT '',
-            artifacts TEXT DEFAULT '',
-            error TEXT DEFAULT '',
-            locked_by TEXT DEFAULT NULL,
-            locked_until TEXT DEFAULT NULL,
-            heartbeat_at TEXT DEFAULT NULL,
-            attempts INTEGER DEFAULT 0,
-            max_attempts INTEGER DEFAULT 3
-        )
-    """)
-    # Автоматическая миграция существующих таблиц (Sprint 2)
-    cur = con.execute("PRAGMA table_info(tasks)")
-    existing_cols = {row[1] for row in cur.fetchall()}
-    if "locked_by" not in existing_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN locked_by TEXT DEFAULT NULL")
-    if "locked_until" not in existing_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN locked_until TEXT DEFAULT NULL")
-    if "heartbeat_at" not in existing_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT DEFAULT NULL")
-    if "attempts" not in existing_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN attempts INTEGER DEFAULT 0")
-    if "max_attempts" not in existing_cols:
-        con.execute("ALTER TABLE tasks ADD COLUMN max_attempts INTEGER DEFAULT 3")
-    con.commit()
-    con.close()
+    con = sqlite3.connect(QUEUE_DB, timeout=10.0)
+    try:
+        con.execute("PRAGMA journal_mode=WAL;")
+        con.execute("PRAGMA busy_timeout=5000;")
+        con.execute("PRAGMA synchronous=NORMAL;")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS tasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT, updated_at TEXT,
+                task TEXT NOT NULL,
+                worker_hint TEXT DEFAULT '',
+                acceptance TEXT DEFAULT '',
+                status TEXT DEFAULT 'queued',
+                result_summary TEXT DEFAULT '',
+                artifacts TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                locked_by TEXT DEFAULT NULL,
+                locked_until TEXT DEFAULT NULL,
+                heartbeat_at TEXT DEFAULT NULL,
+                attempts INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 3
+            )
+        """)
+        # Автоматическая миграция существующих таблиц (Sprint 2)
+        cur = con.execute("PRAGMA table_info(tasks)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+        if "locked_by" not in existing_cols:
+            con.execute("ALTER TABLE tasks ADD COLUMN locked_by TEXT DEFAULT NULL")
+        if "locked_until" not in existing_cols:
+            con.execute("ALTER TABLE tasks ADD COLUMN locked_until TEXT DEFAULT NULL")
+        if "heartbeat_at" not in existing_cols:
+            con.execute("ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT DEFAULT NULL")
+        if "attempts" not in existing_cols:
+            con.execute("ALTER TABLE tasks ADD COLUMN attempts INTEGER DEFAULT 0")
+        if "max_attempts" not in existing_cols:
+            con.execute("ALTER TABLE tasks ADD COLUMN max_attempts INTEGER DEFAULT 3")
+        con.commit()
+    finally:
+        con.close()
 
 
 def now_str():
@@ -203,7 +207,7 @@ def tool_task_result(args):
     if not row:
         return _text_result(f"[!] Задача #{tid} не найдена", is_error=True)
     status = row["status"]
-    if status in ("queued", "assigned"):
+    if status in ("queued", "assigned", "running", "retry"):
         return _text_result(f"Задача #{tid} ещё в работе (status={status}).")
     parts = [f"Задача #{tid} [{status}]"]
     if row["error"]:
@@ -364,7 +368,7 @@ def tool_pipeline_bom(args):
     if not file_path:
         return _text_result("[!] Обязателен параметр file_path", is_error=True)
     cli = [file_path]
-    if args.get("reserve_percent"):
+    if args.get("reserve_percent") is not None:
         cli.extend(["--reserve", str(args["reserve_percent"])])
     if args.get("output_csv"):
         cli.extend(["--csv", str(args["output_csv"])])
@@ -489,6 +493,7 @@ TOOLS = {
                 "memory_type": {"type": "string", "description": "fact | decision | lesson | reference"},
                 "verification_status": {"type": "string", "description": "verified | empirical | hypothesis"},
                 "confidence": {"type": "number", "description": "Степень уверенности (0.1..1.0)"},
+                "min_confidence": {"type": "number", "description": "Минимальная уверенность для выборки (recall)"},
                 "source": {"type": "string", "description": "Источник ('user', 'test', 'linter', 'book', 'model')"},
                 "tags": {"type": "string", "description": "Теги через запятую"},
             },

@@ -122,7 +122,6 @@ class TestAIAgentSmoke(unittest.TestCase):
 
     def test_task_lease_and_stale_reclaim(self):
         """Проверка атомарной аренды (Lease) и безопасного реклейма очереди задач (Sprint 2)"""
-        import bridge_worker
 
         # Создаем временную тестовую базу в памяти с аналогичной структурой
         con = sqlite3.connect(":memory:")

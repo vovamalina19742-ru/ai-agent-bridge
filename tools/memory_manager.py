@@ -96,8 +96,15 @@ def normalize_record(raw: Dict[str, Any]) -> Dict[str, Any]:
     rec["topic"] = rec.get("topic", "").strip()
     rec["content"] = rec.get("content", "").strip()
     rec["memory_type"] = rec.get("memory_type", "fact")
-    rec["source"] = rec.get("source", "user")
-    rec["verification_status"] = rec.get("verification_status", "verified")
+    source = rec.get("source", "user")
+    rec["source"] = source
+    verification_status = rec.get("verification_status", "verified")
+
+    # Если источник - модель или llm, по умолчанию только гипотеза с низкой уверенностью
+    if str(source).lower() in ("model", "llm", "agent") and verification_status != "verified":
+        verification_status = "hypothesis"
+
+    rec["verification_status"] = verification_status
 
     # Защита от самозагрязнения: неподтвержденные гипотезы модели не могут иметь confidence > 0.5
     conf = float(rec.get("confidence", 1.0))
@@ -163,29 +170,39 @@ def save_cache(cache: Dict[str, Any]) -> None:
 
 
 def get_or_create_embeddings(items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Обеспечивает кэширование эмбеддингов фактов памяти."""
+    """Обеспечивает кэширование эмбеддингов фактов памяти с очисткой устаревших ключей."""
     cache = load_cache()
     items_to_embed = []
     keys_to_embed = []
+    active_keys = set()
 
     for item in items:
         topic = item.get("topic", "")
         rec_id = item.get("id", "")
         ts = item.get("updated_at", item.get("created_at", ""))
         key = f"{rec_id}@@{topic}@@{ts}"
+        active_keys.add(key)
         if key not in cache:
             tags_str = ", ".join(item.get("tags", []))
             text = f"[{item.get('memory_type')}] {topic}: {item.get('content', '')} (Теги: {tags_str})"
             items_to_embed.append(text)
             keys_to_embed.append(key)
 
+    # Удаляем устаревшие ключи для обновленных записей
+    active_ids = {item.get("id") for item in items if item.get("id")}
+    pruned_cache = {k: v for k, v in cache.items() if (k.split("@@")[0] not in active_ids) or (k in active_keys)}
+
     if items_to_embed:
         embeddings = embedding_engine.get_embeddings_batch(items_to_embed)
         if embeddings and len(embeddings) == len(items_to_embed):
             for key, emb in zip(keys_to_embed, embeddings):
-                cache[key] = emb
-            save_cache(cache)
-    return cache
+                pruned_cache[key] = emb
+            save_cache(pruned_cache)
+            return pruned_cache
+    elif len(pruned_cache) != len(cache):
+        save_cache(pruned_cache)
+
+    return pruned_cache
 
 
 def action_save(
@@ -216,6 +233,9 @@ def action_save(
             break
 
     # Защита от самозагрязнения
+    if str(source).lower() in ("model", "llm", "agent") and verification_status != "verified":
+        verification_status = "hypothesis"
+
     conf = float(confidence)
     if verification_status == "hypothesis" and conf > 0.5:
         conf = 0.5
@@ -247,7 +267,7 @@ def action_save(
     get_or_create_embeddings(data)
 
     status_icon = "✅" if verification_status == "verified" else "🧪" if verification_status == "empirical" else "⚠️"
-    print(f"[✓] Успешно сохранено в долговременную память!")
+    print("[✓] Успешно сохранено в долговременную память!")
     print(f"📌 [{rec['memory_type'].upper()}] {topic} {status_icon} (Уверенность: {rec['confidence']:.0%}, Источник: {source})")
     print(f"📝 {content}")
     return rec
@@ -438,7 +458,7 @@ def main():
     parser.add_argument("action", choices=["save", "save_decision", "save_lesson", "recall", "verify", "list"], help="Действие")
     parser.add_argument("topic", nargs="?", default="", help="Тема или поисковый запрос")
     parser.add_argument("content", nargs="?", default="", help="Текст для сохранения")
-    parser.add_argument("--type", dest="memory_type", default="fact", choices=["fact", "decision", "lesson", "reference"], help="Тип записи")
+    parser.add_argument("--type", dest="memory_type", default=None, choices=["fact", "decision", "lesson", "reference"], help="Тип записи")
     parser.add_argument("--status", dest="verification_status", default="verified", choices=["verified", "empirical", "hypothesis"], help="Статус проверки")
     parser.add_argument("--confidence", type=float, default=1.0, help="Степень уверенности (0.1..1.0)")
     parser.add_argument("--source", default="user", help="Источник знания")
@@ -452,7 +472,7 @@ def main():
         action_save(
             topic=args.topic,
             content=args.content,
-            memory_type=args.memory_type,
+            memory_type=args.memory_type or "fact",
             source=args.source,
             verification_status=args.verification_status,
             confidence=args.confidence,
@@ -465,9 +485,9 @@ def main():
     elif args.action == "verify":
         action_verify(args.topic, proof=args.content)
     elif args.action == "recall":
-        action_recall(args.topic, memory_type=args.memory_type if args.memory_type != "fact" else None, min_confidence=args.min_confidence)
+        action_recall(args.topic, memory_type=args.memory_type, min_confidence=args.min_confidence)
     elif args.action == "list":
-        action_list(memory_type=args.memory_type if args.memory_type != "fact" else None)
+        action_list(memory_type=args.memory_type)
 
 
 if __name__ == "__main__":

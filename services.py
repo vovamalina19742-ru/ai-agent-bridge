@@ -9,12 +9,10 @@ r"""
 """
 
 import os
-import sys
 import sqlite3
 import threading
 import json
-import subprocess
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from dataclasses import dataclass, field
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,41 +23,49 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class DatabasePool:
     """
     Потокобезопасный реестр соединений SQLite.
+    Использует threading.local(), чтобы каждый поток имел собственное изолированное соединение.
     Автоматически переводит базы в PRAGMA journal_mode=WAL и ставит busy_timeout=5000,
     чтобы исключить блокировки при параллельном обращении инструментов.
     """
     _instance = None
     _lock = threading.Lock()
-    _connections: Dict[str, sqlite3.Connection] = {}
 
     def __new__(cls):
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super(DatabasePool, cls).__new__(cls)
+                cls._instance._local = threading.local()
+                cls._instance._all_conns = []
             return cls._instance
 
     def get_connection(self, db_path: str) -> sqlite3.Connection:
         abs_path = os.path.abspath(db_path)
-        with self._lock:
-            if abs_path not in self._connections:
-                conn = sqlite3.connect(abs_path, timeout=10.0, check_same_thread=False)
-                try:
-                    conn.execute("PRAGMA journal_mode=WAL;")
-                    conn.execute("PRAGMA busy_timeout=5000;")
-                    conn.execute("PRAGMA synchronous=NORMAL;")
-                except Exception:
-                    pass
-                self._connections[abs_path] = conn
-            return self._connections[abs_path]
+        if not hasattr(self._local, "connections"):
+            self._local.connections = {}
+
+        if abs_path not in self._local.connections:
+            conn = sqlite3.connect(abs_path, timeout=10.0)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA busy_timeout=5000;")
+                conn.execute("PRAGMA synchronous=NORMAL;")
+            except Exception:
+                pass
+            self._local.connections[abs_path] = conn
+            with self._lock:
+                self._all_conns.append(conn)
+        return self._local.connections[abs_path]
 
     def close_all(self):
         with self._lock:
-            for path, conn in self._connections.items():
+            for conn in self._all_conns:
                 try:
                     conn.close()
                 except Exception:
                     pass
-            self._connections.clear()
+            self._all_conns.clear()
+            if hasattr(self._local, "connections"):
+                self._local.connections.clear()
 
 
 # =====================================================================

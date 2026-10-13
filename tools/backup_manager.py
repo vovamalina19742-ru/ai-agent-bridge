@@ -12,7 +12,6 @@ backup_manager.py — Автоматическое резервное копир
 """
 import os
 import sys
-import time
 import shutil
 import sqlite3
 import argparse

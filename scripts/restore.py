@@ -12,11 +12,10 @@ restore.py — Автономная утилита безопасного вос
 
 import os
 import sys
-import shutil
 import sqlite3
 import argparse
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 if sys.platform == "win32":
     try:

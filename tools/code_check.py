@@ -119,7 +119,7 @@ def run_cargo(path, run_tests=False):
         else:
             err = res.stderr.strip() or res.stdout.strip()
             lines = err.splitlines()
-            return False, f"Cargo ошибка:\n" + "\n".join(lines[:6])
+            return False, "Cargo ошибка:\n" + "\n".join(lines[:6])
     except Exception as e:
         return False, f"Ошибка cargo: {e}"
 

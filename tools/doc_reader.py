@@ -12,7 +12,6 @@ doc_reader.py — Универсальное извлечение чистого
 """
 import os
 import sys
-import json
 import argparse
 
 if sys.platform == "win32":

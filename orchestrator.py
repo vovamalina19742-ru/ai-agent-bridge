@@ -5,10 +5,11 @@ import json
 import argparse
 import subprocess
 import importlib.util
+from typing import Optional
 import requests
 import session_store
 import config
-from services import ToolExecutionResult, ExecutionResult, primary_provider, fallback_provider, SEMANTIC_TOOL_ALIASES
+from services import ToolExecutionResult, ExecutionResult, fallback_provider, SEMANTIC_TOOL_ALIASES
 
 # Гарантируем корректный вывод UTF-8 в консоли Windows
 if sys.platform == "win32":
@@ -32,10 +33,16 @@ def get_stored_memories():
             with open(memory_path, "r", encoding="utf-8") as f:
                 items = json.load(f)
             if items:
-                lines = ["\nТвоя долговременная память (факты и знания, сохраненные ранее):"]
-                for it in items[-8:]:
-                    lines.append(f"• [{it.get('topic')}]: {it.get('content')}")
-                return "\n".join(lines)
+                # Фильтруем: исключаем неподтвержденные гипотезы и записи с низкой уверенностью
+                verified_items = [
+                    it for it in items
+                    if it.get("verification_status") != "hypothesis" and float(it.get("confidence", 1.0)) >= 0.6
+                ]
+                if verified_items:
+                    lines = ["\nТвоя долговременная память (проверенные факты и знания):"]
+                    for it in verified_items[-8:]:
+                        lines.append(f"• [{it.get('topic')}]: {it.get('content')}")
+                    return "\n".join(lines)
         except Exception:
             pass
     return ""
@@ -64,18 +71,23 @@ def load_agents_rules():
         + memories
     )
 
-def load_tools_registry():
+_TOOLS_REGISTRY_CACHE = None
+
+def load_tools_registry(force_reload: bool = False):
     """
     Динамически сканирует папку tools/ и извлекает TOOL_SPEC из каждого скрипта.
-    Возвращает:
-      - ollama_tools: список спецификаций функций для Ollama
-      - tools_map: словарь name -> {path, spec}
+    Результат кэшируется в памяти, предотвращая повторный exec_module на каждом шаге.
     """
+    global _TOOLS_REGISTRY_CACHE
+    if _TOOLS_REGISTRY_CACHE is not None and not force_reload:
+        return _TOOLS_REGISTRY_CACHE
+
     ollama_tools = []
     tools_map = {}
 
     if not os.path.exists(TOOLS_DIR):
         os.makedirs(TOOLS_DIR, exist_ok=True)
+        _TOOLS_REGISTRY_CACHE = (ollama_tools, tools_map)
         return ollama_tools, tools_map
 
     for filename in os.listdir(TOOLS_DIR):
@@ -135,6 +147,7 @@ def load_tools_registry():
                 }
             })
 
+    _TOOLS_REGISTRY_CACHE = (ollama_tools, tools_map)
     return ollama_tools, tools_map
 
 def execute_tool(tool_info, arguments):
@@ -146,13 +159,48 @@ def execute_tool(tool_info, arguments):
     spec = tool_info["spec"]
     tool_name = tool_info.get("file_name", os.path.basename(file_path))[:-3]
 
-    # Формируем аргументы запуска CLI
+    # Формируем аргументы запуска CLI с поддержкой именованных флагов
     cli_args = []
     if isinstance(arguments, dict):
-        props = spec.get("parameters", {}).get("properties", {})
         if "args" in arguments and len(arguments) == 1:
             cli_args = str(arguments["args"]).split()
+        elif tool_name == "pipeline_bom":
+            if "file_path" in arguments:
+                cli_args.append(str(arguments["file_path"]))
+            if "reserve_percent" in arguments and arguments["reserve_percent"] is not None:
+                cli_args.extend(["--reserve", str(arguments["reserve_percent"])])
+            if "output_csv" in arguments and arguments["output_csv"]:
+                cli_args.extend(["--csv", str(arguments["output_csv"])])
+        elif tool_name == "remote_server":
+            action = arguments.get("action", "")
+            operation = arguments.get("operation", "")
+            target = arguments.get("target", "")
+            if action:
+                cli_args.append(str(action))
+            if operation:
+                cli_args.append(str(operation))
+            if target:
+                cli_args.extend(["--target", str(target)])
+        elif tool_name == "memory_manager":
+            action = arguments.get("action", "")
+            topic = arguments.get("topic", "")
+            content = arguments.get("content", "")
+            if action:
+                cli_args.append(str(action))
+            if topic:
+                cli_args.append(str(topic))
+            if content:
+                cli_args.append(str(content))
+            if "type" in arguments and arguments["type"] is not None:
+                cli_args.extend(["--type", str(arguments["type"])])
+            if "status" in arguments and arguments["status"]:
+                cli_args.extend(["--status", str(arguments["status"])])
+            if "confidence" in arguments and arguments["confidence"] is not None:
+                cli_args.extend(["--confidence", str(arguments["confidence"])])
+            if "min_confidence" in arguments and arguments["min_confidence"] is not None:
+                cli_args.extend(["--min-confidence", str(arguments["min_confidence"])])
         else:
+            props = spec.get("parameters", {}).get("properties", {})
             for param_name in props.keys():
                 if param_name in arguments:
                     val = str(arguments[param_name]).strip()
@@ -270,13 +318,14 @@ def trim_history(messages):
     # Сохраняем системный промпт (индекс 0) + последние MAX_HISTORY_MESSAGES сообщений
     return [messages[0]] + messages[-MAX_HISTORY_MESSAGES:]
 
-def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelope: bool = False):
+def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelope: bool = False, model_name: Optional[str] = None):
     """
     Автономный цикл ReAct:
     Посылает запрос -> Модель выбирает инструмент -> Оркестратор исполняет -> Возвращает ответ.
     При return_envelope=True возвращает строго типизированный ExecutionResult.
     """
     last_output_for_injection_check = None
+    target_model = model_name or MODEL_NAME
 
     # Автоматическая загрузка данных при обнаружении веб-ссылки в запросе пользователя
     if messages and messages[-1].get("role") == "user":
@@ -305,7 +354,7 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelo
     for step in range(max_iterations):
         active_messages = trim_history(messages)
         payload = {
-            "model": MODEL_NAME,
+            "model": target_model,
             "messages": active_messages,
             "stream": False,
             "options": {"num_ctx": 8192}
@@ -321,6 +370,9 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelo
             resp = requests.post(endpoint_url, json=payload, headers=headers, timeout=300)
             if resp.status_code != 200:
                 print(f"[-] Ошибка API Ollama ({resp.status_code}): {resp.text}")
+                fail_err = f"Ошибка API Ollama ({resp.status_code}): {resp.text[:200]}"
+                if return_envelope:
+                    return ExecutionResult.fail(fail_err, is_retryable=(resp.status_code >= 500), iterations=step + 1)
                 return "Не удалось связаться с моделью."
             
             data = resp.json()
@@ -359,7 +411,7 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelo
                 print(f"[+] Вывод инструмента:\n{output}\n")
 
                 # Если это консультация со Старшим ИИ, его ответ уже закончен и полон
-                if func_name == "consult_senior_ai":
+                if func_name in ("consult_senior_ai", "consult_with_senior_architect_ai"):
                     if return_envelope:
                         return ExecutionResult.ok(output, iterations=step + 1)
                     return output
@@ -418,9 +470,9 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelo
     return f"[-] {limit_msg}"
 
 
-def execute_task(messages, ollama_tools, tools_map, max_iterations=6) -> ExecutionResult:
+def execute_task(messages, ollama_tools, tools_map, max_iterations=6, model_name: Optional[str] = None) -> ExecutionResult:
     """Официальная точка входа для исполнения задач воркером с гарантией ExecutionResult."""
-    return chat_step(messages, ollama_tools, tools_map, max_iterations=max_iterations, return_envelope=True)
+    return chat_step(messages, ollama_tools, tools_map, max_iterations=max_iterations, return_envelope=True, model_name=model_name)
 
 def interactive_repl(system_prompt, ollama_tools, tools_map):
     """Интерактивный диалоговый режим (REPL) с сохранением контекста/кэша сессии (F15)."""
@@ -473,7 +525,7 @@ def interactive_repl(system_prompt, ollama_tools, tools_map):
                 continue
 
             if user_input.lower() == "tools":
-                print(f"[*] Список инструментов в реестре:")
+                print("[*] Список инструментов в реестре:")
                 for name, info in tools_map.items():
                     desc = info["spec"].get("description", "Без описания")
                     print(f"  - {name} ({info['file_name']}): {desc}")
