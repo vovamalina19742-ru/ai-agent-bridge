@@ -244,8 +244,20 @@ def tool_memory(args):
     cli = [action]
     if args.get("topic"):
         cli.append(args["topic"])
-    if action == "save" and args.get("content"):
+    if action in ("save", "save_decision", "save_lesson", "verify") and args.get("content"):
         cli.append(args["content"])
+    if args.get("memory_type"):
+        cli.extend(["--type", args["memory_type"]])
+    if args.get("source"):
+        cli.extend(["--source", args["source"]])
+    if args.get("verification_status"):
+        cli.extend(["--status", args["verification_status"]])
+    if args.get("confidence") is not None:
+        cli.extend(["--confidence", str(args["confidence"])])
+    if args.get("tags"):
+        cli.extend(["--tags", args["tags"]])
+    if args.get("min_confidence") is not None:
+        cli.extend(["--min-confidence", str(args["min_confidence"])])
     return _text_result(run_tool_script("memory_manager.py", cli, timeout=30))
 
 
@@ -469,11 +481,16 @@ TOOLS = {
         tool_memory,
         tool_def(
             "memory",
-            "Долговременная память агента: action='save' (topic+content), 'recall' (topic), 'list'.",
+            "Эпистемическая долговременная память: action='save', 'save_decision', 'save_lesson', 'recall', 'verify', 'list'. Поддерживает memory_type, verification_status, confidence (0.1..1.0), source, tags.",
             {
-                "action": {"type": "string", "description": "save | recall | list"},
-                "topic": {"type": "string", "description": "Тема/ключевое слово"},
-                "content": {"type": "string", "description": "Текст факта (для save)"},
+                "action": {"type": "string", "description": "save | save_decision | save_lesson | recall | verify | list"},
+                "topic": {"type": "string", "description": "Тема или поисковый запрос"},
+                "content": {"type": "string", "description": "Текст факта, решения или урока"},
+                "memory_type": {"type": "string", "description": "fact | decision | lesson | reference"},
+                "verification_status": {"type": "string", "description": "verified | empirical | hypothesis"},
+                "confidence": {"type": "number", "description": "Степень уверенности (0.1..1.0)"},
+                "source": {"type": "string", "description": "Источник ('user', 'test', 'linter', 'book', 'model')"},
+                "tags": {"type": "string", "description": "Теги через запятую"},
             },
             ["action"],
         ),

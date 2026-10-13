@@ -295,6 +295,63 @@ class TestAIAgentSmoke(unittest.TestCase):
         self.assertIn("600", exec_res.result)
         self.assertEqual(exec_res.iterations, 1)
 
+    def test_epistemic_memory_guardrails(self):
+        """Проверка эпистемической гигиены, защиты от самозагрязнения и верификации (Этап 3)"""
+        import tempfile
+        import shutil
+        from tools import memory_manager
+
+        tmp_dir = tempfile.mkdtemp()
+        orig_file = memory_manager.MEMORY_FILE
+        orig_cache = memory_manager.CACHE_FILE
+        try:
+            test_mem_file = os.path.join(tmp_dir, "test_memory.json")
+            test_cache_file = os.path.join(tmp_dir, "test_cache.json")
+            memory_manager.MEMORY_FILE = test_mem_file
+            memory_manager.CACHE_FILE = test_cache_file
+
+            # 1. Попытка сохранить гипотезу с завышенной уверенностью 0.95 -> срезается до 0.5
+            rec1 = memory_manager.action_save(
+                topic="Гипотеза производительности",
+                content="Возможно, модель 3b работает быстрее 1.5b",
+                memory_type="fact",
+                verification_status="hypothesis",
+                confidence=0.95,
+                source="model"
+            )
+            self.assertEqual(rec1["verification_status"], "hypothesis")
+            self.assertLessEqual(rec1["confidence"], 0.5, "Гипотеза не была ограничена до confidence <= 0.5!")
+
+            # 2. Сохранение проверенного решения
+            rec2 = memory_manager.action_save_decision(
+                topic="Выбор СУБД",
+                decision="SQLite с WAL-режимом",
+                rationale="Минимальный оверхед по памяти и атомарная аренда"
+            )
+            self.assertEqual(rec2["memory_type"], "decision")
+            self.assertEqual(rec2["verification_status"], "verified")
+            self.assertEqual(rec2["confidence"], 1.0)
+
+            # 3. Сохранение урока (gotcha)
+            rec3 = memory_manager.action_save_lesson(
+                topic="SQLite date comparison",
+                mistake="datetime('now') возвращает UTC строку",
+                fix="Использовать одинаковые модификаторы времени"
+            )
+            self.assertEqual(rec3["memory_type"], "lesson")
+
+            # 4. Верификация гипотезы rec1 -> повышает до 100%
+            ok_v = memory_manager.action_verify(rec1["id"], "Подтверждено бенчмарком")
+            self.assertTrue(ok_v)
+            data_reloaded = memory_manager.load_memory()
+            verified_rec = next(r for r in data_reloaded if r["id"] == rec1["id"])
+            self.assertEqual(verified_rec["verification_status"], "verified")
+            self.assertEqual(verified_rec["confidence"], 1.0)
+        finally:
+            memory_manager.MEMORY_FILE = orig_file
+            memory_manager.CACHE_FILE = orig_cache
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
