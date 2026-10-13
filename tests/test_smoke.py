@@ -104,5 +104,96 @@ class TestAIAgentSmoke(unittest.TestCase):
         with self.assertRaises(config.ConfigError):
             config._get_env("NON_EXISTENT_VAR_12345", required=True)
 
+    def test_execution_result_envelope(self):
+        """Проверка контракта ExecutionResult (Sprint 2)"""
+        from services import ExecutionResult
+
+        res_ok = ExecutionResult.ok("Готово", iterations=2)
+        self.assertTrue(res_ok.success)
+        self.assertEqual(res_ok.result, "Готово")
+        self.assertIsNone(res_ok.error)
+
+        res_fail = ExecutionResult.fail("Таймаут Ollama", is_retryable=True, iterations=1)
+        self.assertFalse(res_fail.success)
+        self.assertIsNone(res_fail.result)
+        self.assertTrue(res_fail.is_retryable)
+        self.assertEqual(res_fail.error, "Таймаут Ollama")
+
+    def test_task_lease_and_stale_reclaim(self):
+        """Проверка атомарной аренды (Lease) и безопасного реклейма очереди задач (Sprint 2)"""
+        import bridge_worker
+
+        # Создаем временную тестовую базу в памяти с аналогичной структурой
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("""
+            CREATE TABLE tasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT, updated_at TEXT,
+                task TEXT NOT NULL,
+                worker_hint TEXT DEFAULT '',
+                acceptance TEXT DEFAULT '',
+                status TEXT DEFAULT 'queued',
+                result_summary TEXT DEFAULT '',
+                artifacts TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                locked_by TEXT DEFAULT NULL,
+                locked_until TEXT DEFAULT NULL,
+                heartbeat_at TEXT DEFAULT NULL,
+                attempts INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 3
+            )
+        """)
+        # 1. Добавляем задачу
+        con.execute("INSERT INTO tasks(task, status) VALUES ('Тестовая задача', 'queued')")
+        con.commit()
+
+        # 2. Атомарный claim с lease на 60 сек
+        cur = con.execute("""
+            UPDATE tasks
+            SET status='assigned', locked_by='worker_1', locked_until=datetime('now', '+60 seconds'), attempts=attempts+1
+            WHERE id = (SELECT id FROM tasks WHERE status='queued' LIMIT 1)
+            RETURNING *
+        """)
+        row = cur.fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "assigned")
+        self.assertEqual(row["locked_by"], "worker_1")
+        self.assertEqual(row["attempts"], 1)
+
+        # 3. Другой воркер пытается reclaim пока lease активен -> 0 задач возвращено
+        cur_reclaim = con.execute("""
+            UPDATE tasks SET status='queued', locked_by=NULL, locked_until=NULL
+            WHERE status IN ('assigned', 'running')
+              AND locked_until IS NOT NULL
+              AND locked_until < datetime('now')
+        """)
+        self.assertEqual(cur_reclaim.rowcount, 0, "Активная аренда была ошибочно перехвачена!")
+
+        # 4. Истекшая аренда (в прошлом) -> должна быть возвращена в queued
+        con.execute("UPDATE tasks SET locked_until=datetime('now', '-10 seconds') WHERE id=1")
+        con.commit()
+        cur_reclaim_expired = con.execute("""
+            UPDATE tasks SET status='queued', locked_by=NULL, locked_until=NULL
+            WHERE status IN ('assigned', 'running')
+              AND locked_until IS NOT NULL
+              AND locked_until < datetime('now')
+              AND attempts < max_attempts
+        """)
+        self.assertEqual(cur_reclaim_expired.rowcount, 1, "Истекшая аренда не была возвращена в очередь!")
+
+        # 5. Истекшая аренда с превышением max_attempts -> переводится в failed
+        con.execute("UPDATE tasks SET status='assigned', attempts=3, max_attempts=3, locked_until=datetime('now', '-10 seconds') WHERE id=1")
+        con.commit()
+        cur_fail = con.execute("""
+            UPDATE tasks SET status='failed', error='Превышен лимит попыток'
+            WHERE status IN ('assigned', 'running')
+              AND locked_until IS NOT NULL
+              AND locked_until < datetime('now')
+              AND attempts >= max_attempts
+        """)
+        self.assertEqual(cur_fail.rowcount, 1, "Зависшая задача не переведена в failed при attempts >= max_attempts!")
+        con.close()
+
 if __name__ == "__main__":
     unittest.main()

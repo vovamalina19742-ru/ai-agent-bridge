@@ -82,9 +82,27 @@ def ensure_db():
             status TEXT DEFAULT 'queued',
             result_summary TEXT DEFAULT '',
             artifacts TEXT DEFAULT '',
-            error TEXT DEFAULT ''
+            error TEXT DEFAULT '',
+            locked_by TEXT DEFAULT NULL,
+            locked_until TEXT DEFAULT NULL,
+            heartbeat_at TEXT DEFAULT NULL,
+            attempts INTEGER DEFAULT 0,
+            max_attempts INTEGER DEFAULT 3
         )
     """)
+    # Автоматическая миграция существующих таблиц (Sprint 2)
+    cur = con.execute("PRAGMA table_info(tasks)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    if "locked_by" not in existing_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN locked_by TEXT DEFAULT NULL")
+    if "locked_until" not in existing_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN locked_until TEXT DEFAULT NULL")
+    if "heartbeat_at" not in existing_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT DEFAULT NULL")
+    if "attempts" not in existing_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN attempts INTEGER DEFAULT 0")
+    if "max_attempts" not in existing_cols:
+        con.execute("ALTER TABLE tasks ADD COLUMN max_attempts INTEGER DEFAULT 3")
     con.commit()
     con.close()
 
@@ -149,8 +167,17 @@ def tool_task_status(args):
         con.close()
         if not row:
             return _text_result(f"[!] Задача #{tid} не найдена", is_error=True)
+        extra = []
+        if row['status'] in ('assigned', 'running') and row['locked_by']:
+            extra.append(f"Воркер: {row['locked_by']}")
+        if row['attempts']:
+            extra.append(f"Попытки: {row['attempts']}/{row['max_attempts']}")
+        if row['error']:
+            extra.append(f"Ошибка: {row['error']}")
+        extra_str = f" | {', '.join(extra)}" if extra else ""
+
         return _text_result(
-            f"Задача #{row['id']} [{row['status']}]\n"
+            f"Задача #{row['id']} [{row['status']}]{extra_str}\n"
             f"Создана: {row['created_at']} | Обновлена: {row['updated_at']}\n"
             f"Задача: {row['task'][:200]}\n"
             f"Hint: {row['worker_hint'] or '-'} | Критерий: {row['acceptance'] or '-'}"

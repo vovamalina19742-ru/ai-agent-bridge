@@ -7,7 +7,8 @@ import subprocess
 import importlib.util
 import requests
 import session_store
-from services import ToolExecutionResult, primary_provider, fallback_provider, SEMANTIC_TOOL_ALIASES
+import config
+from services import ToolExecutionResult, ExecutionResult, primary_provider, fallback_provider, SEMANTIC_TOOL_ALIASES
 
 # Гарантируем корректный вывод UTF-8 в консоли Windows
 if sys.platform == "win32":
@@ -17,8 +18,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
-MODEL_NAME = "qwen2.5-coder:7b"
+OLLAMA_CHAT_URL = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
+MODEL_NAME = config.DEFAULT_MODEL
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOOLS_DIR = os.path.join(BASE_DIR, "tools")
 MAX_HISTORY_MESSAGES = 24
@@ -269,10 +270,11 @@ def trim_history(messages):
     # Сохраняем системный промпт (индекс 0) + последние MAX_HISTORY_MESSAGES сообщений
     return [messages[0]] + messages[-MAX_HISTORY_MESSAGES:]
 
-def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
+def chat_step(messages, ollama_tools, tools_map, max_iterations=6, return_envelope: bool = False):
     """
     Автономный цикл ReAct:
     Посылает запрос -> Модель выбирает инструмент -> Оркестратор исполняет -> Возвращает ответ.
+    При return_envelope=True возвращает строго типизированный ExecutionResult.
     """
     last_output_for_injection_check = None
 
@@ -358,6 +360,8 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
 
                 # Если это консультация со Старшим ИИ, его ответ уже закончен и полон
                 if func_name == "consult_senior_ai":
+                    if return_envelope:
+                        return ExecutionResult.ok(output, iterations=step + 1)
                     return output
 
                 # Гарантируем структуру tool_calls в сообщении ассистента для нативного протокола
@@ -376,7 +380,10 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
                 continue
             else:
                 # Финальный текстовый ответ
-                return assistant_msg.get("content", "")
+                final_text = assistant_msg.get("content", "")
+                if return_envelope:
+                    return ExecutionResult.ok(final_text, iterations=step + 1)
+                return final_text
 
         except requests.exceptions.ConnectionError:
             # Пытаемся переключиться на удаленный узел Linux (192.168.1.100), если локальная Ollama не отвечает
@@ -388,15 +395,32 @@ def chat_step(messages, ollama_tools, tools_map, max_iterations=5):
                         data = resp.json()
                         assistant_msg = data.get("message", {})
                         messages.append(assistant_msg)
-                        return assistant_msg.get("content", "")
+                        final_text = assistant_msg.get("content", "")
+                        if return_envelope:
+                            return ExecutionResult.ok(final_text, iterations=step + 1, warnings=["Использован резервный узел Linux"])
+                        return final_text
                 except Exception as fb_err:
                     print(f"[-] Ошибка удаленного узла: {fb_err}")
-            print(f"[-] Ошибка: Локальная Ollama недоступна на {OLLAMA_CHAT_URL}")
-            return "Ollama не запущена (проверьте локальную службу или Linux-сервер 192.168.1.100)."
+            fail_msg = f"Локальная Ollama недоступна на {OLLAMA_CHAT_URL} и удаленный узел не отвечает."
+            print(f"[-] {fail_msg}")
+            if return_envelope:
+                return ExecutionResult.fail(fail_msg, is_retryable=True, iterations=step + 1)
+            return f"[-] Ошибка: {fail_msg}"
         except Exception as e:
-            return f"Ошибка диалога: {str(e)}"
+            err_msg = f"Ошибка диалога: {str(e)}"
+            if return_envelope:
+                return ExecutionResult.fail(err_msg, is_retryable=False, iterations=step + 1)
+            return f"[-] {err_msg}"
 
-    return "Превышен лимит шагов выполнения инструментов."
+    limit_msg = f"Превышен лимит шагов выполнения инструментов ({max_iterations})."
+    if return_envelope:
+        return ExecutionResult.fail(limit_msg, is_retryable=False, iterations=max_iterations)
+    return f"[-] {limit_msg}"
+
+
+def execute_task(messages, ollama_tools, tools_map, max_iterations=6) -> ExecutionResult:
+    """Официальная точка входа для исполнения задач воркером с гарантией ExecutionResult."""
+    return chat_step(messages, ollama_tools, tools_map, max_iterations=max_iterations, return_envelope=True)
 
 def interactive_repl(system_prompt, ollama_tools, tools_map):
     """Интерактивный диалоговый режим (REPL) с сохранением контекста/кэша сессии (F15)."""

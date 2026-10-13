@@ -14,7 +14,8 @@ import sqlite3
 import threading
 import json
 import subprocess
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, field
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -101,6 +102,42 @@ class ToolExecutionResult:
             "hint": self.hint or "Попробуй альтернативный инструмент или сообщи пользователю суть проблемы."
         }
         return f"[!] СБОЙ ИНСТРУМЕНТА:\n{json.dumps(err_payload, ensure_ascii=False, indent=2)}"
+
+
+@dataclass
+class ExecutionResult:
+    """
+    Канонический контракт выполнения задачи/шага ReAct-оркестратора.
+    Исключает маскировку системных и сетевых ошибок под успешные строковые ответы.
+    """
+    success: bool
+    result: Optional[str] = None
+    error: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
+    is_retryable: bool = False
+    iterations: int = 0
+
+    @classmethod
+    def ok(cls, result: str, iterations: int = 1, warnings: List[str] = None) -> "ExecutionResult":
+        return cls(
+            success=True,
+            result=result,
+            error=None,
+            warnings=warnings or [],
+            is_retryable=False,
+            iterations=iterations
+        )
+
+    @classmethod
+    def fail(cls, error: str, is_retryable: bool = False, iterations: int = 0, warnings: List[str] = None) -> "ExecutionResult":
+        return cls(
+            success=False,
+            result=None,
+            error=error,
+            warnings=warnings or [],
+            is_retryable=is_retryable,
+            iterations=iterations
+        )
 
 
 # =====================================================================
