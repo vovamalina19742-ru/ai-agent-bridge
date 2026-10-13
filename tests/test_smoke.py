@@ -204,10 +204,23 @@ class TestAIAgentSmoke(unittest.TestCase):
         tmp_dir = tempfile.mkdtemp()
         try:
             valid_db = os.path.join(tmp_dir, "valid.db")
-            with sqlite3.connect(valid_db) as conn:
-                conn.execute("CREATE TABLE test (id INT, val TEXT)")
-                conn.execute("INSERT INTO test VALUES (1, 'hello')")
+            conn = sqlite3.connect(valid_db)
+            conn.execute("CREATE TABLE test (id INT, val TEXT)")
+            conn.execute("INSERT INTO test VALUES (1, 'hello')")
+            conn.commit()
+            conn.close()
             self.assertTrue(verify_sqlite_integrity(valid_db), "Корректная база не прошла проверку integrity_check!")
+
+            # Проверяем сжатие gzip (.db.gz) и обратную распаковку
+            from tools.backup_manager import compress_file_gzip, decompress_file_gzip
+            gz_path = compress_file_gzip(valid_db)
+            self.assertTrue(gz_path.endswith(".gz"))
+            self.assertTrue(os.path.exists(gz_path))
+            self.assertFalse(os.path.exists(valid_db), "Оригинальный несжатый файл должен удаляться для экономии места")
+
+            decomp_path = decompress_file_gzip(gz_path)
+            self.assertTrue(os.path.exists(decomp_path))
+            self.assertTrue(verify_sqlite_integrity(decomp_path), "Распакованная из gzip база не прошла integrity_check!")
 
             corrupt_db = os.path.join(tmp_dir, "corrupt.db")
             with open(corrupt_db, "wb") as f:

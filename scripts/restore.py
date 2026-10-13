@@ -12,7 +12,10 @@ restore.py — Автономная утилита безопасного вос
 
 import os
 import sys
+import gzip
+import shutil
 import sqlite3
+import tempfile
 import argparse
 from datetime import datetime
 from typing import List, Dict, Any
@@ -47,7 +50,7 @@ def list_available_backups() -> List[Dict[str, Any]]:
     for name in sorted(os.listdir(BACKUPS_DIR), reverse=True):
         full_path = os.path.join(BACKUPS_DIR, name)
         if os.path.isdir(full_path) and (name.startswith("backup_") or name.startswith("pre_restore_")):
-            dbs = [f for f in os.listdir(full_path) if f.endswith(".db")]
+            dbs = [f for f in os.listdir(full_path) if f.endswith(".db") or f.endswith(".db.gz")]
             total_size_mb = sum(os.path.getsize(os.path.join(full_path, f)) for f in dbs) / (1024.0 * 1024.0)
             items.append({
                 "name": name,
@@ -74,7 +77,7 @@ def verify_db_integrity(db_path: str) -> bool:
 
 
 def restore_snapshot(snapshot_name_or_path: str, skip_safety_backup: bool = False) -> bool:
-    """Выполняет безопасное восстановление баз данных из указанного снапшота."""
+    """Выполняет безопасное восстановление баз данных из указанного снапшота (с поддержкой .db.gz)."""
     # Определяем путь к каталогу бэкапа
     if os.path.isabs(snapshot_name_or_path) and os.path.isdir(snapshot_name_or_path):
         src_dir = snapshot_name_or_path
@@ -85,84 +88,106 @@ def restore_snapshot(snapshot_name_or_path: str, skip_safety_backup: bool = Fals
         print(f"[-] Ошибка: Каталог резервной копии '{src_dir}' не найден.")
         return False
 
-    backup_dbs = [f for f in os.listdir(src_dir) if f.endswith(".db")]
-    if not backup_dbs:
-        print(f"[-] Ошибка: В каталоге '{os.path.basename(src_dir)}' не найдено файлов баз данных (*.db).")
+    backup_files = [f for f in os.listdir(src_dir) if f.endswith(".db") or f.endswith(".db.gz")]
+    if not backup_files:
+        print(f"[-] Ошибка: В каталоге '{os.path.basename(src_dir)}' не найдено файлов баз данных (*.db или *.db.gz).")
         return False
 
     print("=" * 65)
     print(f"  ВОССТАНОВЛЕНИЕ БАЗ ДАННЫХ ИЗ СНАПШОТА: {os.path.basename(src_dir)}")
     print("=" * 65)
 
-    # 1. Проверка целостности всех файлов в резервной копии ДО восстановления
-    print("[1/4] Валидация целостности резервной копии (PRAGMA integrity_check)...")
-    for db_name in backup_dbs:
-        db_path = os.path.join(src_dir, db_name)
-        if not verify_db_integrity(db_path):
-            print(f" [!] КРИТИЧЕСКИЙ СБОЙ: Файл '{db_name}' в резервной копии поврежден!")
-            print(" [!] Операция восстановления немедленно прервана. Рабочие базы не затронуты.")
-            return False
-        print(f"  ✓ {db_name}: целостность подтверждена (OK)")
+    temp_decomp_dir = tempfile.mkdtemp()
+    try:
+        # Подготовка баз (распаковка gzip при необходимости)
+        prepared_dbs: Dict[str, str] = {}
+        for f in backup_files:
+            if f.endswith(".db.gz"):
+                canon_name = f[:-3]
+                uncompressed_path = os.path.join(temp_decomp_dir, canon_name)
+                with gzip.open(os.path.join(src_dir, f), "rb") as gz_in:
+                    with open(uncompressed_path, "wb") as f_out:
+                        shutil.copyfileobj(gz_in, f_out)
+                prepared_dbs[canon_name] = uncompressed_path
+            elif f.endswith(".db"):
+                prepared_dbs[f] = os.path.join(src_dir, f)
 
-    # 2. Создание аварийной точки отката (Safety Snapshot) текущего состояния
-    if not skip_safety_backup:
-        print("\n[2/4] Создание точки отката текущих рабочих баз (Safety Snapshot)...")
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safety_dir = os.path.join(BACKUPS_DIR, f"pre_restore_{ts}")
-        os.makedirs(safety_dir, exist_ok=True)
-        saved_count = 0
-        for db_name, target_path in TARGET_MAPPING.items():
-            if os.path.exists(target_path):
-                dst = os.path.join(safety_dir, db_name)
-                try:
-                    src_conn = sqlite3.connect(target_path)
-                    dst_conn = sqlite3.connect(dst)
-                    with dst_conn:
-                        src_conn.backup(dst_conn, pages=100)
-                    dst_conn.close()
-                    src_conn.close()
-                    saved_count += 1
-                    print(f"  + Сохранено текущее состояние {db_name} -> {os.path.basename(safety_dir)}")
-                except Exception as e:
-                    print(f"  ! Предупреждение: не удалось снять слепок {db_name}: {e}")
+        # 1. Проверка целостности всех файлов в резервной копии ДО восстановления
+        print("[1/4] Валидация целостности резервной копии (PRAGMA integrity_check)...")
+        for db_name, db_path in prepared_dbs.items():
+            if not verify_db_integrity(db_path):
+                print(f" [!] КРИТИЧЕСКИЙ СБОЙ: Файл '{db_name}' в резервной копии поврежден!")
+                print(" [!] Операция восстановления немедленно прервана. Рабочие базы не затронуты.")
+                return False
+            print(f"  ✓ {db_name}: целостность подтверждена (OK)")
 
-    # 3. Восстановление через SQLite Online Backup API
-    print("\n[3/4] Восстановление данных в рабочие пути...")
-    restored = []
-    for db_name in backup_dbs:
-        if db_name not in TARGET_MAPPING:
-            print(f"  - Пропуск {db_name} (не зарегистрирован в TARGET_MAPPING)")
-            continue
+        # 2. Создание аварийной точки отката (Safety Snapshot) текущего состояния
+        if not skip_safety_backup:
+            print("\n[2/4] Создание точки отката текущих рабочих баз (Safety Snapshot)...")
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safety_dir = os.path.join(BACKUPS_DIR, f"pre_restore_{ts}")
+            os.makedirs(safety_dir, exist_ok=True)
+            saved_count = 0
+            for db_name, target_path in TARGET_MAPPING.items():
+                if os.path.exists(target_path):
+                    dst = os.path.join(safety_dir, db_name)
+                    try:
+                        src_conn = sqlite3.connect(target_path)
+                        dst_conn = sqlite3.connect(dst)
+                        with dst_conn:
+                            src_conn.backup(dst_conn, pages=100)
+                        dst_conn.close()
+                        src_conn.close()
+                        saved_count += 1
+                        print(f"  + Сохранено текущее состояние {db_name} -> {os.path.basename(safety_dir)}")
+                    except Exception as e:
+                        print(f"  ! Предупреждение: не удалось снять слепок {db_name}: {e}")
 
-        target_path = TARGET_MAPPING[db_name]
-        src_path = os.path.join(src_dir, db_name)
+        # 3. Восстановление через SQLite Online Backup API
+        print("\n[3/4] Восстановление данных в рабочие пути...")
+        restored = []
+        for db_name, src_path in prepared_dbs.items():
+            if db_name not in TARGET_MAPPING:
+                print(f"  - Пропуск {db_name} (не зарегистрирован в TARGET_MAPPING)")
+                continue
 
-        try:
-            # Гарантируем каталог назначения
-            os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
-            # Выполняем атомарный перенос через backup API
-            src_conn = sqlite3.connect(src_path)
-            dst_conn = sqlite3.connect(target_path)
-            with dst_conn:
-                src_conn.backup(dst_conn, pages=100)
-            dst_conn.close()
-            src_conn.close()
-            restored.append(db_name)
-            print(f"  ✓ Восстановлен: {db_name} -> {target_path}")
-        except Exception as e:
-            print(f"  ! Ошибка восстановления {db_name}: {e}")
-            return False
+            target_path = TARGET_MAPPING[db_name]
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+                src_conn = sqlite3.connect(src_path)
+                dst_conn = sqlite3.connect(target_path)
+                with dst_conn:
+                    src_conn.backup(dst_conn, pages=100)
+                dst_conn.close()
+                src_conn.close()
+                restored.append(db_name)
+                print(f"  ✓ Восстановлен: {db_name} -> {target_path}")
+            except Exception as e:
+                print(f"  ! Ошибка восстановления {db_name}: {e}")
+                return False
 
-    # 4. Финальная проверка восстановленных файлов
-    print("\n[4/4] Финальная проверка восстановленной системы...")
-    all_ok = True
-    for db_name in restored:
-        target_path = TARGET_MAPPING[db_name]
-        if verify_db_integrity(target_path):
-            print(f"  ✓ {db_name}: активная база проверена и готова к работе (OK)")
+        # 4. Финальная проверка восстановленных файлов
+        print("\n[4/4] Финальная проверка восстановленной системы...")
+        all_ok = True
+        for db_name in restored:
+            target_path = TARGET_MAPPING[db_name]
+            if not verify_db_integrity(target_path):
+                print(f"  ✗ {db_name}: ошибка integrity_check после восстановления!")
+                all_ok = False
+            else:
+                print(f"  ✓ {db_name}: рабочая база валидна и готова к эксплуатации")
+
+        if all_ok:
+            print("\n" + "=" * 65)
+            print("  [SUCCESS] Все базы данных успешно и консистентно восстановлены!")
+            print("=" * 65)
+            return True
         else:
-            print(f"  ! ОШИБКА: {db_name} после восстановления не прошла проверку!")
-            all_ok = False
+            print("\n[-] ВНИМАНИЕ: Одна или несколько баз не прошли финальную проверку!")
+            return False
+
+    finally:
+        shutil.rmtree(temp_decomp_dir, ignore_errors=True)
 
     print("-" * 65)
     if all_ok:

@@ -12,6 +12,7 @@ backup_manager.py — Автоматическое резервное копир
 """
 import os
 import sys
+import gzip
 import shutil
 import sqlite3
 import argparse
@@ -40,7 +41,7 @@ BACKUP_LOCAL_DIR = os.path.join(BASE_DIR, "backups")
 
 TOOL_SPEC = {
     "name": "backup_manager",
-    "description": "Создание резервных копий баз данных AI_Agent (SQLite online backup) с ротацией и отправкой на Linux-сервер.",
+    "description": "Создание резервных копий баз данных AI_Agent (SQLite online backup) с компрессией gzip (.db.gz), ротацией и отправкой на Linux-сервер.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -52,9 +53,40 @@ TOOL_SPEC = {
                 "type": "integer",
                 "description": "Сколько последних бэкапов хранить локально (по умолчанию: 5)",
             },
+            "compress": {
+                "type": "boolean",
+                "description": "Сжимать базы данных в gzip (.db.gz) для экономии ресурса SSD и быстрого сетевого трансфера (по умолчанию: true)",
+            },
         },
     },
 }
+
+
+def compress_file_gzip(src_path: str) -> str:
+    """Сжимает файл в gzip (.gz) со стримингом и удалением несжатого оригинала."""
+    gz_path = src_path + ".gz"
+    with open(src_path, "rb") as f_in:
+        with gzip.open(gz_path, "wb", compresslevel=6) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    if os.path.exists(gz_path) and os.path.getsize(gz_path) > 0:
+        try:
+            os.remove(src_path)
+        except Exception:
+            pass
+        return gz_path
+    return src_path
+
+
+def decompress_file_gzip(gz_path: str, dst_path: str = None) -> str:
+    """Распаковывает файл .gz обратно в SQLite базу данных."""
+    if not gz_path.endswith(".gz"):
+        return gz_path
+    if not dst_path:
+        dst_path = gz_path[:-3]
+    with gzip.open(gz_path, "rb") as f_in:
+        with open(dst_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    return dst_path
 
 
 def verify_sqlite_integrity(db_path: str) -> bool:
@@ -122,7 +154,7 @@ def rotate_backups(keep_last=5):
             pass
 
 
-def create_backup(upload_to_server=True, keep_last=5):
+def create_backup(upload_to_server=True, keep_last=5, compress=True):
     os.makedirs(BACKUP_LOCAL_DIR, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     snapshot_dir = os.path.join(BACKUP_LOCAL_DIR, f"backup_{ts}")
@@ -133,19 +165,25 @@ def create_backup(upload_to_server=True, keep_last=5):
     # 1. bridge_queue.db
     q_dst = os.path.join(snapshot_dir, "bridge_queue.db")
     if backup_sqlite(QUEUE_DB_PATH, q_dst):
-        backed_up.append("bridge_queue.db")
+        if compress:
+            q_dst = compress_file_gzip(q_dst)
+        backed_up.append(os.path.basename(q_dst))
 
     # 2. books_index.db
     b_dst = os.path.join(snapshot_dir, "books_index.db")
     if backup_sqlite(DATABASE_PATH, b_dst):
-        backed_up.append("books_index.db")
+        if compress:
+            b_dst = compress_file_gzip(b_dst)
+        backed_up.append(os.path.basename(b_dst))
 
     # 3. memory.db (если существует)
     mem_path = os.path.join(BASE_DIR, "memory.db")
     if os.path.exists(mem_path):
         m_dst = os.path.join(snapshot_dir, "memory.db")
         if backup_sqlite(mem_path, m_dst):
-            backed_up.append("memory.db")
+            if compress:
+                m_dst = compress_file_gzip(m_dst)
+            backed_up.append(os.path.basename(m_dst))
 
     if not backed_up:
         # Если ни одна база не скопирована, удаляем пустой каталог и возвращаем ошибку
@@ -184,6 +222,7 @@ def create_backup(upload_to_server=True, keep_last=5):
     res_lines = [
         f"[+] Снапшот создан: backup_{ts}",
         f"• Локально сохранено: {', '.join(backed_up) if backed_up else 'нет баз'}",
+        f"• Сжатие (gzip): {'включено (.db.gz)' if compress else 'выключено (.db)'}",
         f"• Путь: {snapshot_dir}",
         f"• Сервер: {server_status}"
     ]
@@ -193,10 +232,11 @@ def create_backup(upload_to_server=True, keep_last=5):
 def main():
     parser = argparse.ArgumentParser(description="Бэкап баз данных AI_Agent")
     parser.add_argument("--no-server", action="store_true", help="Не отправлять на Linux-сервер")
+    parser.add_argument("--no-compress", action="store_true", help="Не сжимать базы данных в gzip (.db.gz)")
     parser.add_argument("--keep", type=int, default=5, help="Хранить последних локальных копий")
     args = parser.parse_args()
 
-    out = create_backup(upload_to_server=not args.no_server, keep_last=args.keep)
+    out = create_backup(upload_to_server=not args.no_server, keep_last=args.keep, compress=not args.no_compress)
     print(out)
 
 
