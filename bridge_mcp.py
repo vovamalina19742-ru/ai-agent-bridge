@@ -265,6 +265,13 @@ def tool_memory(args):
     return _text_result(run_tool_script("memory_manager.py", cli, timeout=30))
 
 
+def tool_search_saved_links(args):
+    query = (args.get("query") or "").strip()
+    if not query:
+        return _text_result("[!] Обязателен параметр query", is_error=True)
+    return _text_result(run_tool_script("search_saved_links.py", [query], timeout=30))
+
+
 def tool_server_exec(args):
     operation = (args.get("operation") or args.get("command") or "").strip().lower()
     target = (args.get("target") or "").strip()
@@ -425,7 +432,10 @@ TOOLS = {
             "правки кода по готовому ТЗ. НЕ тянуть сырые данные в свой контекст — воркер вернет result_summary.",
             {
                 "task": {"type": "string", "description": "Полная постановка задачи для воркера"},
-                "worker_hint": {"type": "string", "description": "Подсказка: 'coder' (qwen2.5-coder:7b, код), '3b'/'summary' (выжимки), 'reason' (deepseek-r1:8b, рассуждения), 'fast' (1.5b)"},
+                "worker_hint": {
+                    "type": "string",
+                    "description": "Подсказка модели или детерминированного режима: 'calc' (AST-калькулятор, 0 токенов), 'books' (FTS5-поиск, 0 токенов), 'bom' (BOM Takeoff, 0 токенов), 'coder' (qwen2.5-coder:7b), 'reason' (deepseek-r1:8b), 'summary'/'3b' (qwen2.5:3b), 'fast' (qwen2.5-coder:1.5b)",
+                },
                 "acceptance": {"type": "string", "description": "Критерий приемки результата"},
             },
             ["task"],
@@ -498,6 +508,17 @@ TOOLS = {
                 "tags": {"type": "string", "description": "Теги через запятую"},
             },
             ["action"],
+        ),
+    ),
+    "search_saved_links": (
+        tool_search_saved_links,
+        tool_def(
+            "search_saved_links",
+            "Гибридный семантический и ключевой поиск по ранее изученным веб-ссылкам, статьям и GitHub-репозиториям в saved_links.json.",
+            {
+                "query": {"type": "string", "description": "Поисковый запрос, тема, концепция или ключевые слова"},
+            },
+            ["query"],
         ),
     ),
     "server_status": (

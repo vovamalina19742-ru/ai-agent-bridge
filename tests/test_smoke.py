@@ -423,6 +423,33 @@ class TestAIAgentSmoke(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_mcp_search_saved_links_and_worker_hints(self):
+        """Проверка регистрации инструмента search_saved_links и детерминированных хинтов в bridge_mcp"""
+        import bridge_mcp
+
+        # 1. Проверяем регистрацию search_saved_links
+        self.assertIn("search_saved_links", bridge_mcp.TOOLS)
+        handler, schema = bridge_mcp.TOOLS["search_saved_links"]
+        self.assertEqual(schema["name"], "search_saved_links")
+        self.assertIn("query", schema["inputSchema"]["properties"])
+
+        # 2. Вызов без query возвращает ошибку
+        res_empty = handler({})
+        self.assertTrue(res_empty.get("isError"))
+        self.assertIn("Обязателен параметр query", res_empty["content"][0]["text"])
+
+        # 3. Вызов с query возвращает корректный текстовый результат
+        res_query = handler({"query": "swarms"})
+        self.assertIn("content", res_query)
+        self.assertIsInstance(res_query["content"][0]["text"], str)
+
+        # 4. Проверяем наличие детерминированных хинтов в task_assign
+        _, task_schema = bridge_mcp.TOOLS["task_assign"]
+        hint_desc = task_schema["inputSchema"]["properties"]["worker_hint"]["description"]
+        self.assertIn("'calc'", hint_desc)
+        self.assertIn("'books'", hint_desc)
+        self.assertIn("'bom'", hint_desc)
+
 
 if __name__ == "__main__":
     unittest.main()

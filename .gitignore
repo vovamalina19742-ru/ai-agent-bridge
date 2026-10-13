@@ -41,3 +41,6 @@ Desktop.ini
 
 # Local backups
 backups/
+
+# Graphify Knowledge Graph Runtime Artifacts
+graphify-out/
