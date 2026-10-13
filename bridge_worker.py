@@ -227,25 +227,13 @@ def process_task(row: sqlite3.Row):
     heartbeat = TaskHeartbeatThread(tid, WORKER_ID)
     heartbeat.start()
 
-    system_prompt = (
-        orchestrator.load_agents_rules()
-        + "\n\nРЕЖИМ ВОРКЕРА ОЧЕРЕДИ: ты выполняешь одну задачу, поставленную диспетчером. "
-          "Используй инструменты, когда они нужны для дела. Финальный ответ — готовая выжимка результата "
-          "(не более 300 слов), пригодная для проверки диспетчером без чтения сырых данных."
-    )
     user_text = row["task"]
     if row["acceptance"]:
         user_text += f"\n\nКритерий приемки: {row['acceptance']}"
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text},
-    ]
-
     try:
-        ollama_tools, tools_map = orchestrator.load_tools_registry()
-        # Вызов с возвратом типизированного конверта ExecutionResult (Sprint 2)
-        exec_res = orchestrator.execute_task(messages, ollama_tools, tools_map, max_iterations=6)
+        import dispatcher
+        exec_res = dispatcher.dispatch_and_execute(user_text, worker_hint=row["worker_hint"])
     except Exception as e:
         from services import ExecutionResult
         exec_res = ExecutionResult.fail(f"Исключение при выполнении задачи: {type(e).__name__}: {e}", is_retryable=False)

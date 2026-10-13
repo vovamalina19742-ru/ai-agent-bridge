@@ -236,6 +236,65 @@ class TestAIAgentSmoke(unittest.TestCase):
         _, msgs1_cleared = mgr.get_or_create(sid1)
         self.assertEqual(len(msgs1_cleared), 1, "Сессия 1 не сбросилась к системному промпту!")
 
+    def test_dispatcher_safe_eval(self):
+        """Проверка безопасного AST калькулятора (Этап 2: Диспетчер)"""
+        from dispatcher import safe_eval_math_expression
+
+        # Корректные выражения
+        ok, res = safe_eval_math_expression("2 + 2 * 3")
+        self.assertTrue(ok)
+        self.assertEqual(res, 8)
+
+        ok, res = safe_eval_math_expression("(150 * 1.2) / 3 + sqrt(16)")
+        self.assertTrue(ok)
+        self.assertAlmostEqual(res, 64.0)
+
+        # Опасные инъекции блокируются AST парсером
+        ok_evil, _ = safe_eval_math_expression("__import__('os').system('calc')")
+        self.assertFalse(ok_evil, "Опасный вызов __import__ не был заблокирован!")
+
+        ok_evil2, _ = safe_eval_math_expression("open('/etc/passwd').read()")
+        self.assertFalse(ok_evil2, "Опасный вызов open() не был заблокирован!")
+
+    def test_dispatcher_intent_classification(self):
+        """Проверка классификации интентов и правила Code-First (Этап 2)"""
+        from dispatcher import classify_task, TaskCategory
+
+        # Арифметика -> DETERMINISTIC_CALC
+        cat, meta = classify_task("Посчитай (25 * 4) + 10")
+        self.assertEqual(cat, TaskCategory.DETERMINISTIC_CALC)
+        self.assertIn("expr", meta)
+
+        # Поиск по книгам -> DIRECT_BOOK_SEARCH
+        cat, meta = classify_task("Найди в книгах про протокол BGP")
+        self.assertEqual(cat, TaskCategory.DIRECT_BOOK_SEARCH)
+        self.assertIn("query", meta)
+
+        # Многошаговый план -> MULTI_STEP_PLAN
+        multi_prompt = "1. Сначала посчитай 10 * 5\n2. Затем найди в книгах по теме Rust"
+        cat, meta = classify_task(multi_prompt)
+        self.assertEqual(cat, TaskCategory.MULTI_STEP_PLAN)
+
+        # Задача на код -> LLM_CODING
+        cat, meta = classify_task("Напиши скрипт на Python для парсинга логов")
+        self.assertEqual(cat, TaskCategory.LLM_CODING)
+
+    def test_task_decomposer_and_execution(self):
+        """Проверка декомпозиции на подшаги и детерминированного выполнения (Этап 2)"""
+        from dispatcher import TaskDecomposer, dispatch_and_execute
+
+        multi_prompt = "1. Посчитай 120 + 35\n2. Посчитай 50 * 4"
+        steps = TaskDecomposer.decompose(multi_prompt)
+        self.assertEqual(len(steps), 2, "Многошаговая задача не разбита на 2 шага!")
+        self.assertEqual(steps[0].step, 1)
+        self.assertEqual(steps[1].step, 2)
+
+        # Выполнение детерминированного вычисления через диспетчер (0 токенов)
+        exec_res = dispatch_and_execute("Посчитай (100 + 20) * 5")
+        self.assertTrue(exec_res.success)
+        self.assertIn("600", exec_res.result)
+        self.assertEqual(exec_res.iterations, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
