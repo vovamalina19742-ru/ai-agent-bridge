@@ -8,23 +8,36 @@
 *.db
 *.db-wal
 *.db-shm
-*.json
-!package.json
-!requirements.txt
+
+# Runtime agent memory & session files (User-specific / Private)
+session.json
+memory.json
+memory_embeddings.json
+saved_links.json
+links_embeddings.json
+*.tmp
+
+# Release archives
+*.zip
+AI_Agent_Clean_Dist.zip
 
 # Logs
 *.log
+logs/
 
-# Python cache
+# Python cache & build
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.ruff_cache/
 
 # OS Specific & IDE
 Thumbs.db
 Desktop.ini
 .DS_Store
+.idea/
+.vscode/
+
 # Local backups
 backups/
-*.zip

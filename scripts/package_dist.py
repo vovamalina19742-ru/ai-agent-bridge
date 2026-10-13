@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-package_dist.py — Автоматическая сборка чистого дистрибутива под разработку.
-Исключает рабочие базы данных, журналы, конфиги с секретами (.env), байт-код и историю git.
+package_dist.py — Автоматическая сборка чистого дистрибутива под разработку и аудит.
+Исключает рабочие базы данных, журналы, конфиги с секретами (.env), байт-код, историю git,
+а также файлы долговременной памяти и сессий конкретного пользователя.
 """
 
 import os
@@ -19,13 +20,26 @@ if sys.platform == "win32":
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 EXCLUDE_DIRS = {
-    ".git", "__pycache__", "data", "logs", "backups", ".idea", ".vscode", "tmp", ".pytest_cache"
+    ".git", "__pycache__", "data", "logs", "backups", ".idea", ".vscode", "tmp", ".pytest_cache", ".ruff_cache", ".venv", "venv"
 }
+
 EXCLUDE_EXTS = {
-    ".pyc", ".pyo", ".db", ".db-wal", ".db-shm", ".log", ".env"
+    ".pyc", ".pyo", ".db", ".db-wal", ".db-shm", ".log", ".tmp"
 }
+
+# Строго исключаем приватные рантайм-файлы, реальный .env и архивы
 EXCLUDE_FILES = {
-    ".env", "bridge_queue.db", "books_index.db", "bridge_mcp.log", "bridge_worker.log"
+    ".env",
+    "AI_Agent_Clean_Dist.zip",
+    "session.json",
+    "memory.json",
+    "memory_embeddings.json",
+    "saved_links.json",
+    "links_embeddings.json",
+    "bridge_queue.db",
+    "books_index.db",
+    "bridge_mcp.log",
+    "bridge_worker.log",
 }
 
 
@@ -34,9 +48,9 @@ def package_clean_distribution(output_filename: str = None) -> str:
         output_filename = os.path.join(BASE_DIR, "AI_Agent_Clean_Dist.zip")
 
     output_basename = os.path.basename(output_filename)
-    print("=" * 60)
-    print("  СБОРКА ЧИСТОГО ДИСТРИБУТИВА (DEVELOPMENT / AUDIT PACKAGE)")
-    print("=" * 60)
+    print("=" * 65)
+    print("  📦 СБОРКА ЧИСТОГО ЭТАЛОННОГО ДИСТРИБУТИВА (AUDIT / DIST PACKAGE)")
+    print("=" * 65)
 
     count = 0
     total_bytes = 0
@@ -47,8 +61,16 @@ def package_clean_distribution(output_filename: str = None) -> str:
             dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
 
             for file in sorted(files):
+                file_lower = file.lower()
                 ext = os.path.splitext(file)[1].lower()
-                if ext in EXCLUDE_EXTS or file in EXCLUDE_FILES or file.endswith(".zip"):
+
+                # Проверка исключений
+                if (
+                    ext in EXCLUDE_EXTS
+                    or file in EXCLUDE_FILES
+                    or file_lower.endswith(".zip")
+                    or (file_lower.startswith(".env") and file_lower != ".env.example")
+                ):
                     continue
 
                 full_path = os.path.join(root, file)
@@ -64,11 +86,11 @@ def package_clean_distribution(output_filename: str = None) -> str:
                 print(f" [+] {arcname:<45} ({size_kb:6.1f} KB)")
 
     zip_size_mb = os.path.getsize(output_filename) / (1024.0 * 1024.0)
-    print("-" * 60)
+    print("-" * 65)
     print(f"[✓] Упаковано файлов: {count} (исходный размер: {total_bytes / (1024 * 1024):.2f} MB)")
     print(f"[✓] Чистый архив создан: {output_filename} ({zip_size_mb:.2f} MB)")
-    print("[✓] Конфиденциальные данные (.env, *.db, *.log, *.pyc) успешно изолированы.")
-    print("=" * 60)
+    print("[✓] Конфиденциальные данные (.env, сессии, память, *.db, *.log, *.pyc) изолированы.")
+    print("=" * 65)
     return output_filename
 
 
