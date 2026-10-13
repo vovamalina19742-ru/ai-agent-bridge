@@ -58,8 +58,22 @@ TOOL_SPEC = {
 }
 
 
+def verify_sqlite_integrity(db_path: str) -> bool:
+    """Проверяет целостность базы через PRAGMA integrity_check;."""
+    if not os.path.exists(db_path):
+        return False
+    try:
+        con = sqlite3.connect(db_path)
+        cur = con.execute("PRAGMA integrity_check;")
+        row = cur.fetchone()
+        con.close()
+        return bool(row and str(row[0]).lower() == "ok")
+    except Exception:
+        return False
+
+
 def backup_sqlite(source_path, target_path):
-    """Выполняет безопасный онлайн-снапшот SQLite базы (без блокировки пишущих процессов)."""
+    """Выполняет безопасный онлайн-снапшот SQLite базы с валидацией целостности (PRAGMA integrity_check)."""
     if not os.path.exists(source_path):
         return False
     try:
@@ -69,9 +83,25 @@ def backup_sqlite(source_path, target_path):
             src.backup(dst, pages=100)
         dst.close()
         src.close()
+
+        # Валидация целостности созданного снапшота (Sprint 3)
+        if not verify_sqlite_integrity(target_path):
+            sys.stderr.write(f"[!] Ошибка: снапшот {target_path} не прошел integrity_check\n")
+            if os.path.exists(target_path):
+                try:
+                    os.remove(target_path)
+                except Exception:
+                    pass
+            return False
+
         return True
     except Exception as e:
         sys.stderr.write(f"[!] Ошибка бэкапа {source_path}: {e}\n")
+        if os.path.exists(target_path):
+            try:
+                os.remove(target_path)
+            except Exception:
+                pass
         return False
 
 
@@ -117,6 +147,14 @@ def create_backup(upload_to_server=True, keep_last=5):
         m_dst = os.path.join(snapshot_dir, "memory.db")
         if backup_sqlite(mem_path, m_dst):
             backed_up.append("memory.db")
+
+    if not backed_up:
+        # Если ни одна база не скопирована, удаляем пустой каталог и возвращаем ошибку
+        try:
+            shutil.rmtree(snapshot_dir)
+        except Exception:
+            pass
+        return "[-] Ошибка бэкапа: Ни одна база данных не была успешно скопирована."
 
     rotate_backups(keep_last)
 

@@ -1,0 +1,5 @@
+# ==============================================================================
+# OCR Engine Dependencies (ocr_scans.py, pipeline_bom.py fallback)
+# Install: pip install -r requirements-ocr.txt
+# ==============================================================================
+rapidocr-onnxruntime>=1.3.0

@@ -12,8 +12,10 @@ import os
 import sys
 import json
 import asyncio
+import uuid
+import time
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -34,15 +36,57 @@ import session_store
 
 app = FastAPI(title="AI-Agent Bridge Dashboard", version="1.0.0")
 
-# Глобальное состояние сессии
+# Реестр инструментов и системные правила
 ollama_tools, tools_map = load_tools_registry()
 system_prompt = load_agents_rules()
-active_messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-execution_logs: List[Dict[str, str]] = []
+
+
+class SessionManager:
+    """Изолированное хранилище сессий пользователей с контролем TTL и лимитом сессий."""
+    def __init__(self, ttl_seconds: int = 86400, max_sessions: int = 200):
+        self.ttl_seconds = ttl_seconds
+        self.max_sessions = max_sessions
+        self.sessions: Dict[str, Dict[str, Any]] = {}
+
+    def get_or_create(self, session_id: Optional[str] = None) -> tuple:
+        self._cleanup()
+        if not session_id or session_id not in self.sessions:
+            new_id = uuid.uuid4().hex[:12]
+            self.sessions[new_id] = {
+                "created_at": time.time(),
+                "last_active": time.time(),
+                "messages": [{"role": "system", "content": system_prompt}]
+            }
+            return new_id, self.sessions[new_id]["messages"]
+        self.sessions[session_id]["last_active"] = time.time()
+        return session_id, self.sessions[session_id]["messages"]
+
+    def clear(self, session_id: Optional[str] = None) -> None:
+        if session_id and session_id in self.sessions:
+            self.sessions[session_id]["messages"] = [{"role": "system", "content": system_prompt}]
+            self.sessions[session_id]["last_active"] = time.time()
+
+    def _cleanup(self) -> None:
+        now = time.time()
+        expired = [sid for sid, s in self.sessions.items() if now - s["last_active"] > self.ttl_seconds]
+        for sid in expired:
+            del self.sessions[sid]
+        if len(self.sessions) > self.max_sessions:
+            sorted_sids = sorted(self.sessions.keys(), key=lambda k: self.sessions[k]["last_active"])
+            for sid in sorted_sids[:len(self.sessions) - self.max_sessions]:
+                del self.sessions[sid]
+
+
+session_mgr = SessionManager()
 
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None
+
+
+class ClearRequest(BaseModel):
+    session_id: Optional[str] = None
 
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
@@ -110,6 +154,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <span style="font-size:0.75rem; background:rgba(56,189,248,0.15); color:var(--accent); padding:2px 8px; border-radius:4px;">DSH Core v3.0</span>
         </div>
         <div class="status-bar">
+            <div class="badge"><div class="dot dot-green"></div> Сессия: <span id="session-badge" style="font-family:monospace; color:var(--accent);">новая</span></div>
             <div class="badge"><div id="dot-ollama" class="dot dot-amber"></div> Local Ollama (<span id="model-name">qwen2.5-coder:7b</span>)</div>
             <div class="badge"><div id="dot-remote" class="dot dot-amber"></div> Linux Node (192.168.1.100)</div>
             <div class="badge"><div id="dot-db" class="dot dot-green"></div> SQLite Pool (WAL)</div>
@@ -121,7 +166,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 <div class="msg msg-system">Готов к работе. Подключено 17 инструментов локальной экосистемы D:\AI_Agent.</div>
             </div>
             <div class="input-bar">
-                <textarea id="prompt-input" placeholder="Введите задачу или ссылку для анализа... (Ctrl+Enter для отправки)" onkeydown="handleKeyDown(event)"></textarea>
+                <textarea id="prompt-input" maxlength="8000" placeholder="Введите задачу или ссылку для анализа... (до 8000 симв., Ctrl+Enter для отправки)" onkeydown="handleKeyDown(event)"></textarea>
                 <button id="send-btn" onclick="sendMessage()">Отправить</button>
                 <button class="btn-clear" onclick="clearChat()">Сброс</button>
             </div>
@@ -140,6 +185,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <script>
         let isProcessing = false;
         let totalSteps = 0;
+        let currentSessionId = localStorage.getItem("ai_agent_session_id") || "";
+        if (currentSessionId) {
+            const badge = document.getElementById("session-badge");
+            if (badge) badge.innerText = currentSessionId;
+        }
 
         function addMessage(role, text) {
             const container = document.getElementById("chat-messages");
@@ -182,6 +232,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             const input = document.getElementById("prompt-input");
             const text = input.value.trim();
             if (!text) return;
+            if (text.length > 8000) {
+                alert("Сообщение превышает лимит в 8000 символов!");
+                return;
+            }
 
             input.value = "";
             addMessage("user", text);
@@ -195,9 +249,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 const res = await fetch("/api/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ message: text, session_id: currentSessionId || null })
                 });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || ("HTTP " + res.status));
+                }
                 const data = await res.json();
+                if (data.session_id) {
+                    currentSessionId = data.session_id;
+                    localStorage.setItem("ai_agent_session_id", currentSessionId);
+                    const badge = document.getElementById("session-badge");
+                    if (badge) badge.innerText = currentSessionId;
+                }
                 
                 if (data.logs && data.logs.length > 0) {
                     data.logs.forEach(l => addLog(l.text, l.type));
@@ -208,8 +272,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
                 addMessage("bot", data.reply);
                 addLog("[✓ Ответ сформирован]", "success");
             } catch (err) {
-                addMessage("bot", "[-] Ошибка выполнения: " + err);
-                addLog("[-] Ошибка соединения: " + err, "error");
+                addMessage("bot", "[-] Ошибка выполнения: " + err.message);
+                addLog("[-] Ошибка соединения: " + err.message, "error");
             } finally {
                 isProcessing = false;
                 document.getElementById("send-btn").disabled = false;
@@ -219,8 +283,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
         async function clearChat() {
             if (isProcessing) return;
-            await fetch("/api/clear", { method: "POST" });
-            document.getElementById("chat-messages").innerHTML = '<div class="msg msg-system">Сессия сброшена. Контекст очищен.</div>';
+            await fetch("/api/clear", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: currentSessionId || null })
+            });
+            document.getElementById("chat-messages").innerHTML = '<div class="msg msg-system">Сессия ' + (currentSessionId || '') + ' сброшена. Контекст очищен.</div>';
             document.getElementById("logs-container").innerHTML = '<div class="log-item">Память очищена. Готов к новым задачам.</div>';
             totalSteps = 0;
             document.getElementById("step-counter").innerText = "Шагов: 0";
@@ -250,24 +318,30 @@ async def get_status():
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    global active_messages
     user_prompt = req.message.strip()
-    active_messages.append({"role": "user", "content": user_prompt})
+    if not user_prompt:
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым.")
+    if len(user_prompt) > 8000:
+        raise HTTPException(status_code=400, detail="Сообщение превышает лимит 8000 символов.")
+
+    session_id, messages = session_mgr.get_or_create(req.session_id)
+    messages.append({"role": "user", "content": user_prompt})
 
     logs: List[Dict[str, str]] = []
     
     # Запускаем шаг оркестратора в отдельном потоке, чтобы не блокировать event loop FastAPI
     loop = asyncio.get_event_loop()
-    reply = await loop.run_in_executor(None, chat_step, active_messages, ollama_tools, tools_map)
+    reply = await loop.run_in_executor(None, chat_step, messages, ollama_tools, tools_map)
 
     # Проверяем последние сообщения для сбора логов
-    for m in active_messages[-4:]:
+    for m in messages[-4:]:
         if m.get("role") == "tool":
             tool_name = m.get("name", "tool")
             content_preview = str(m.get("content", ""))[:200]
             logs.append({"type": "tool", "text": f"[🛠️ Вызов инструмента {tool_name}]:\n{content_preview}..."})
 
     return {
+        "session_id": session_id,
         "reply": reply,
         "logs": logs,
         "steps": len(logs) + 1
@@ -275,10 +349,11 @@ async def chat_endpoint(req: ChatRequest):
 
 
 @app.post("/api/clear")
-async def clear_endpoint():
-    global active_messages
-    active_messages = [{"role": "system", "content": system_prompt}]
-    return {"status": "cleared"}
+async def clear_endpoint(req: Optional[ClearRequest] = None):
+    sid = req.session_id if req else None
+    if sid:
+        session_mgr.clear(sid)
+    return {"status": "cleared", "session_id": sid}
 
 
 if __name__ == "__main__":

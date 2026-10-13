@@ -195,5 +195,47 @@ class TestAIAgentSmoke(unittest.TestCase):
         self.assertEqual(cur_fail.rowcount, 1, "Зависшая задача не переведена в failed при attempts >= max_attempts!")
         con.close()
 
+    def test_backup_integrity(self):
+        """Проверка валидации PRAGMA integrity_check при создании бэкапов (Sprint 3)"""
+        import tempfile
+        import shutil
+        from tools.backup_manager import verify_sqlite_integrity
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            valid_db = os.path.join(tmp_dir, "valid.db")
+            with sqlite3.connect(valid_db) as conn:
+                conn.execute("CREATE TABLE test (id INT, val TEXT)")
+                conn.execute("INSERT INTO test VALUES (1, 'hello')")
+            self.assertTrue(verify_sqlite_integrity(valid_db), "Корректная база не прошла проверку integrity_check!")
+
+            corrupt_db = os.path.join(tmp_dir, "corrupt.db")
+            with open(corrupt_db, "wb") as f:
+                f.write(b"NOT A SQLITE DATABASE HEADER TRASH DATA")
+            self.assertFalse(verify_sqlite_integrity(corrupt_db), "Поврежденный файл ошибочно прошел проверку integrity_check!")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_web_ui_session_isolation(self):
+        """Проверка изоляции сессий и валидации лимитов сообщений в Web-UI (Sprint 3)"""
+        from web_ui import SessionManager
+
+        mgr = SessionManager(ttl_seconds=60, max_sessions=10)
+        # 1. Создаем две разные сессии
+        sid1, msgs1 = mgr.get_or_create(None)
+        sid2, msgs2 = mgr.get_or_create(None)
+        self.assertNotEqual(sid1, sid2, "Сессии должны иметь уникальные идентификаторы!")
+
+        # 2. Модификация сообщений в сессии 1 не должна влиять на сессию 2
+        msgs1.append({"role": "user", "content": "Секретное сообщение сессии 1"})
+        _, msgs2_refetched = mgr.get_or_create(sid2)
+        self.assertEqual(len(msgs2_refetched), 1, "Сессия 2 загрязнилась сообщениями из сессии 1!")
+
+        # 3. Сброс сессии 1 очищает только её историю
+        mgr.clear(sid1)
+        _, msgs1_cleared = mgr.get_or_create(sid1)
+        self.assertEqual(len(msgs1_cleared), 1, "Сессия 1 не сбросилась к системному промпту!")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,22 @@
+# ==============================================================================
+# AI_Agent Core & Web Dependencies
+# Install: pip install -r requirements.txt
+# ==============================================================================
+
+# --- Core Runtime ---
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 pymupdf>=1.24.0
+python-dotenv>=1.0.0
+
+# --- Web UI & Dashboard (:3080) ---
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.0.0
+
+# ==============================================================================
+# Optional Extensible Modules (Install as needed):
+#   pip install -r requirements-docs.txt  (for DOCX, XLSX, PPTX extraction)
+#   pip install -r requirements-ocr.txt   (for RapidOCR scanned blueprints)
+#   pip install -r requirements-dev.txt   (for pytest and static analysis)
+# ==============================================================================
